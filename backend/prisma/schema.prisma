@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Patient {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  treatments    Treatment[]
+  appointments  Appointment[]
+  patientRecord PatientRecord?
+  clinicalNotes ClinicalNote[]
+}
+
+model Treatment {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  status      String   @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  procedures Procedure[]
+}
+
+model Procedure {
+  id          String   @id @default(uuid())
+  name        String
+  tooth       String?  // Optional tooth region (e.g., "Dente 11")
+  price       Float    @default(0)
+  duration    Int      @default(30) // Duration in minutes
+  isCompleted Boolean  @default(false)
+  treatmentId String
+  treatment   Treatment @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  appointment Appointment?
+}
+
+model Appointment {
+  id          String   @id @default(uuid())
+  startTime   DateTime
+  endTime     DateTime
+  status      String   @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  procedureId String?  @unique
+  procedure   Procedure? @relation(fields: [procedureId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CatalogItem {
+  id          String   @id @default(uuid())
+  type        String   @default("SERVICE") // "SERVICE" or "PRODUCT"
+  name        String
+  description String?
+  price       Float    @default(0)
+  duration    Int      @default(30) // Duration in minutes, mostly for services
+  color       String   @default("#3b82f6") // Hex color for the odontogram
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model PatientRecord {
+  id            String   @id @default(uuid())
+  patientId     String   @unique
+  patient       Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  medicalAlerts String?
+  healthHistory String?
+  allergies     String?
+  medications   String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ClinicalNote {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  date        DateTime @default(now())
+  description String
+  dentistName String?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
