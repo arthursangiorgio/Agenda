@@ -92,17 +92,25 @@ body {
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
+/* Print Styles */
 @media print {
-  .sidebar, .page-header, button, .patient-selector {
+  .sidebar, .page-header, button, .btn, .patient-selector, .tab-header {
     display: none !important;
   }
+  
+  .app-container {
+    display: block !important;
+  }
+  
   .main-content {
-    margin-left: 0 !important;
+    margin: 0 !important;
     padding: 0 !important;
   }
+  
   body {
     background: white !important;
   }
+  
   .glass-panel {
     background: white !important;
     backdrop-filter: none !important;
@@ -111,8 +119,36 @@ body {
     margin: 0 !important;
     padding: 1rem !important;
   }
+
+  /* Logic for printing specific treatment card */
   body.printing-mode .treatment-card:not(.printing) {
     display: none !important;
+  }
+
+  /* Logic for documents in Patient Record */
+  .print-only-document {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+  }
+
+  /* If we are printing a document, hide the rest of the record content */
+  .patient-record-content:has(.print-only-document:visible) > *:not(.print-only-document) {
+    display: none !important;
+  }
+}
+
+.print-only-document {
+  display: none;
+}
+
+.print-only {
+  display: none;
+}
+
+@media print {
+  .print-only {
+    display: block !important;
   }
 }
 

@@ -8,3 +8,7 @@ backend/prisma/dev.db-journal
 frontend/dist/
 frontend/node_modules/
 backend/node_modules/
+.wwebjs_auth/
+.wwebjs_cache/
+backend/.wwebjs_auth/
+backend/.wwebjs_cache/

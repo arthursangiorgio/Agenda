@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchCatalog, createCatalogItem, updateCatalogItem, deleteCatalogItem } from '../api';
+import { useToast } from '../context/ToastContext';
 import { Package, Stethoscope, Plus, Edit, Trash, DollarSign, Clock } from 'lucide-react';
 
 export default function Catalog() {
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   
   // State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,6 +31,7 @@ export default function Catalog() {
     mutationFn: createCatalogItem,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['catalog'] });
+      showToast('Item criado com sucesso!');
       closeModal();
     }
   });
@@ -222,8 +225,8 @@ export default function Catalog() {
 
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={closeModal}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={createMutation.isLoading || updateMutation.isLoading}>
-                  {createMutation.isLoading || updateMutation.isLoading ? 'Salvando...' : 'Salvar Item'}
+                <button type="submit" className="btn btn-primary" disabled={createMutation.isPending || updateMutation.isPending}>
+                  {createMutation.isPending || updateMutation.isPending ? 'Salvando...' : 'Salvar Item'}
                 </button>
               </div>
             </form>

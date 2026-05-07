@@ -8,17 +8,48 @@ datasource db {
 }
 
 model Patient {
-  id        String   @id @default(uuid())
-  name      String
-  phone     String?
-  email     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(uuid())
+  name          String
+  phone         String?
+  email         String?
+  
+  // New Personal Details
+  document      String?  // CPF/RG
+  birthDate     DateTime?
+  gender        String?  // Masculino, Feminino, Outro
+  maritalStatus String?  // Solteiro, Casado, etc.
+  
+  // Address Details
+  address       String?
+  city          String?
+  state         String?
+  zipCode       String?
 
-  treatments    Treatment[]
+  dentalPlan    String?  // UNIMED, OdontoPrev, etc.
+  planNumber    String?
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  treatments        Treatment[]
   appointments  Appointment[]
   patientRecord PatientRecord?
   clinicalNotes ClinicalNote[]
+  periodontalCharts PeriodontalChart[]
+  attachments   Attachment[]
+  transactions  Transaction[]
+}
+
+model Dentist {
+  id             String   @id @default(uuid())
+  name           String
+  specialization String?
+  color          String   @default("#4F46E5")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  appointments   Appointment[]
+  scheduleBlocks ScheduleBlock[]
 }
 
 model Treatment {
@@ -41,12 +72,33 @@ model Procedure {
   price       Float    @default(0)
   duration    Int      @default(30) // Duration in minutes
   isCompleted Boolean  @default(false)
+  
+  paymentStatus String @default("PENDING") // PENDING, PAID, PARTIAL
+  paidAmount    Float  @default(0)
+  
   treatmentId String
   treatment   Treatment @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  appointment Appointment?
+  appointment  Appointment?
+  transactions Transaction[]
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  amount      Float
+  date        DateTime @default(now())
+  method      String   // PIX, CARD, CASH, PLAN
+  type        String   @default("INCOME") // INCOME, EXPENSE
+  
+  patientId   String?
+  patient     Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  
+  procedureId String?
+  procedure   Procedure? @relation(fields: [procedureId], references: [id], onDelete: SetNull)
+  
+  createdAt   DateTime @default(now())
 }
 
 model Appointment {
@@ -54,13 +106,35 @@ model Appointment {
   startTime   DateTime
   endTime     DateTime
   status      String   @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED
+  
+  whatsappSent Boolean @default(false)
+  emailSent    Boolean @default(false)
+
   patientId   String
   patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
   procedureId String?  @unique
   procedure   Procedure? @relation(fields: [procedureId], references: [id], onDelete: SetNull)
+  
+  dentistId   String?
+  dentist     Dentist? @relation(fields: [dentistId], references: [id], onDelete: SetNull)
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model ScheduleBlock {
+  id        String   @id @default(uuid())
+  startTime DateTime
+  endTime   DateTime
+  reason    String?  // e.g., "Almoço", "Feriado", "Congresso"
+  
+  dentistId String?
+  dentist   Dentist? @relation(fields: [dentistId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+}
+
 
 model CatalogItem {
   id          String   @id @default(uuid())
@@ -99,4 +173,29 @@ model ClinicalNote {
   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model PeriodontalChart {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  date        DateTime @default(now())
+  data        String   // JSON string com as medições por dente
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Attachment {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  
+  fileName    String
+  fileType    String   // image/jpeg, image/png, application/pdf
+  url         String   // Base64 ou path
+  category    String?  // Radiografia, Foto, Exame, Outros
+  
+  createdAt   DateTime @default(now())
 }

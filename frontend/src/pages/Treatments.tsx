@@ -49,17 +49,6 @@ export default function Treatments() {
     { name: '', tooth: '', price: 0, duration: 30 }
   ]);
 
-  const clearAppointmentsMutation = useMutation({
-    mutationFn: deleteAllAppointments,
-    onSuccess: (data) => {
-      console.log('All appointments deleted', data);
-      alert('Agenda limpa com sucesso!');
-    },
-    onError: (error) => {
-      console.error('Failed to delete appointments', error);
-      alert('Erro ao limpar a agenda');
-    }
-  });
 
   const { data: patients = [], isLoading: isLoadingPatients } = useQuery({ 
     queryKey: ['patients'], 
@@ -208,17 +197,6 @@ export default function Treatments() {
         )}
       </div>
       
-      <button
-        className="btn btn-secondary"
-        style={{ marginBottom: '1rem', padding: '0.5rem 1rem' }}
-        onClick={() => {
-          if (window.confirm('Tem certeza que deseja apagar TODOS os agendamentos?')) {
-            clearAppointmentsMutation.mutate();
-          }
-        }}
-      >
-        Limpar Agenda
-      </button>
 
       <div className="glass-panel patient-selector" style={{ padding: '1.5rem', marginBottom: '2rem' }}>
         <div className="input-group" style={{ margin: 0 }}>
@@ -262,6 +240,15 @@ export default function Treatments() {
             <div key={treatment.id} className={`glass-panel treatment-card ${printingId === treatment.id ? 'printing' : ''}`} style={{ overflow: 'hidden' }}>
               <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', backgroundColor: 'rgba(255,255,255,0.4)' }}>
                 <div>
+                  {/* Print-only Header */}
+                  <div className="print-only" style={{ marginBottom: '2rem', borderBottom: '2px solid #333', paddingBottom: '1rem' }}>
+                    <h2 style={{ fontSize: '20pt', margin: 0 }}>PLANO DE TRATAMENTO</h2>
+                    <p style={{ fontSize: '12pt', marginTop: '0.5rem' }}>
+                      <strong>Paciente:</strong> {patients.find((p:any) => p.id === selectedPatient)?.name}
+                    </p>
+                    <p style={{ fontSize: '10pt', color: '#666' }}>Data: {new Date().toLocaleDateString()}</p>
+                  </div>
+
                   <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--primary-color)' }}>{treatment.name}</h3>
                   <p style={{ color: 'var(--text-muted)', marginTop: '0.25rem', fontSize: '0.875rem' }}>{treatment.description || 'Sem descrição adicional'}</p>
                   <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', fontSize: '0.875rem' }}>
@@ -293,9 +280,9 @@ export default function Treatments() {
                       className="btn btn-secondary" 
                       style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', color: '#ef4444', borderColor: '#ef4444' }}
                       onClick={() => setTreatmentToDelete(treatment.id)}
-                      disabled={deleteTreatmentMutation.isLoading}
+                      disabled={deleteTreatmentMutation.isPending}
                     >
-                      <Trash size={14} /> {deleteTreatmentMutation.isLoading ? '...' : 'Excluir'}
+                      <Trash size={14} /> {deleteTreatmentMutation.isPending ? '...' : 'Excluir'}
                     </button>
                   </div>
                   <span style={{ 
@@ -480,8 +467,8 @@ export default function Treatments() {
 
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '2rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={mutation.isLoading}>
-                  {mutation.isLoading ? 'Salvando...' : 'Salvar Plano de Tratamento'}
+                <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
+                  {mutation.isPending ? 'Salvando...' : 'Salvar Plano de Tratamento'}
                 </button>
               </div>
             </form>
@@ -523,8 +510,8 @@ export default function Treatments() {
 
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '2rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setEditingTreatment(null)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={updateMutation.isLoading}>
-                  {updateMutation.isLoading ? 'Salvando...' : 'Salvar Alterações'}
+                <button type="submit" className="btn btn-primary" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
                 </button>
               </div>
             </form>
