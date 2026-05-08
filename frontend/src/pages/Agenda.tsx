@@ -442,7 +442,9 @@ export default function Agenda() {
                     <option value="">Selecione o Procedimento</option>
                     {treatments.find((t:any) => t.id === treatmentId)?.procedures.map((p:any) => (
                       <option key={p.id} value={p.id} disabled={!!p.isCompleted || !!p.appointment}>
+                        {p.isCompleted ? '✅ ' : p.appointment ? '🔍 ' : ''}
                         {p.name} ({p.duration} min)
+                        {p.isCompleted ? ' (Concluído)' : p.appointment ? ' (Agendado)' : ''}
                       </option>
                     ))}
                   </select>
