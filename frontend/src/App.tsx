@@ -123,13 +123,7 @@ function AppLayout() {
       </nav>
 
       {/* Main Content Area */}
-      <main style={{ 
-        flex: 1, 
-        marginLeft: '260px', 
-        padding: '2rem', 
-        width: 'calc(100% - 260px)',
-        minHeight: '100vh'
-      }}>
+      <main className="main-content">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/agenda" element={<Agenda />} />

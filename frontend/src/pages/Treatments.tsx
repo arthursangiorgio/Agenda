@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchPatients, fetchTreatments, createTreatment, updateTreatment, deleteTreatment, fetchCatalog, deleteAllAppointments } from '../api';
-import { Plus, ChevronDown, Stethoscope, Activity, Trash, DollarSign, Clock, Edit, BookOpen, Printer } from 'lucide-react';
+import { fetchPatients, fetchTreatments, fetchAllTreatments, createTreatment, updateTreatment, deleteTreatment, fetchCatalog, deleteAllAppointments } from '../api';
+import { Plus, ChevronDown, ChevronUp, Stethoscope, Activity, Trash, DollarSign, Clock, Edit, BookOpen, Printer, Search, Filter } from 'lucide-react';
 import { Tooth, FaceType, getToothRegionName } from '../components/Tooth';
 
 interface ProcedureData {
@@ -17,12 +17,19 @@ const LOWER_TEETH = [48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38];
 
 export default function Treatments() {
   const queryClient = useQueryClient();
-  const [selectedPatient, setSelectedPatient] = useState('');
+  const [selectedPatient, setSelectedPatient] = useState(''); // Utilizado apenas no modal de Novo Orçamento
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTreatment, setEditingTreatment] = useState<any>(null);
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
   const [treatmentToDelete, setTreatmentToDelete] = useState<string | null>(null);
+  const [expandedTreatments, setExpandedTreatments] = useState<Record<string, boolean>>({});
+
+  const toggleTreatment = (id: string) => {
+    setExpandedTreatments(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   useEffect(() => {
     if (printingId) {
@@ -55,10 +62,17 @@ export default function Treatments() {
     queryFn: fetchPatients 
   });
 
-  const { data: treatments = [], isLoading: isLoadingTreatments } = useQuery({ 
-    queryKey: ['treatments', selectedPatient], 
-    queryFn: () => fetchTreatments(selectedPatient),
-    enabled: !!selectedPatient
+  const { data: allTreatments = [], isLoading: isLoadingTreatments } = useQuery({ 
+    queryKey: ['treatments'], 
+    queryFn: fetchAllTreatments
+  });
+
+  const filteredTreatments = allTreatments.filter((t: any) => {
+    const matchesSearch = searchTerm === '' || 
+      t.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.patient?.name && t.patient.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesStatus = statusFilter === 'ALL' || t.status === statusFilter;
+    return matchesSearch && matchesStatus;
   });
 
   const { data: catalog = [] } = useQuery({
@@ -69,18 +83,19 @@ export default function Treatments() {
   const mutation = useMutation({
     mutationFn: createTreatment,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['treatments', selectedPatient] });
+      queryClient.invalidateQueries({ queryKey: ['treatments'] });
       setIsModalOpen(false);
       setFormData({ name: '', description: '' });
-      setProcedures([]);
+      setProcedures([{ name: '', tooth: '', price: 0, duration: 30 }]);
       setSelectedTooth(null);
+      setSelectedPatient('');
     }
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string, data: any }) => updateTreatment(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['treatments', selectedPatient] });
+      queryClient.invalidateQueries({ queryKey: ['treatments'] });
       setEditingTreatment(null);
     }
   });
@@ -88,7 +103,7 @@ export default function Treatments() {
   const deleteTreatmentMutation = useMutation({
     mutationFn: deleteTreatment,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['treatments', selectedPatient] });
+      queryClient.invalidateQueries({ queryKey: ['treatments'] });
     }
   });
 
@@ -172,13 +187,26 @@ export default function Treatments() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPatient) return;
+    if (!selectedPatient) {
+      alert('Por favor, selecione um paciente primeiro.');
+      return;
+    }
     mutation.mutate({
       name: formData.name,
       description: formData.description,
       patientId: selectedPatient,
       procedures: procedures.filter(p => p.name.trim() !== '')
     });
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return { label: 'Em Andamento', bg: 'rgba(6, 182, 212, 0.1)', color: 'var(--secondary-color)' };
+      case 'PENDING': return { label: 'Pendente', bg: 'rgba(241, 245, 249, 1)', color: 'var(--text-muted)' };
+      case 'COMPLETED': return { label: 'Concluído', bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' };
+      case 'CANCELLED': return { label: 'Cancelado', bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' };
+      default: return { label: status || 'Pendente', bg: 'var(--border-color)', color: 'var(--text-muted)' };
+    }
   };
 
   // Helper to format currency
@@ -190,68 +218,83 @@ export default function Treatments() {
     <div className="page-container">
       <div className="page-header">
         <h2 className="page-title">Planos de Tratamento</h2>
-        {selectedPatient && (
-          <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
-            <Plus size={18} /> Novo Orçamento / Plano
-          </button>
-        )}
+        <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
+          <Plus size={18} /> Novo Orçamento / Plano
+        </button>
       </div>
       
-
-      <div className="glass-panel patient-selector" style={{ padding: '1.5rem', marginBottom: '2rem' }}>
-        <div className="input-group" style={{ margin: 0 }}>
-          <label>Selecione um Paciente para visualizar os tratamentos:</label>
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <select 
-              className="input-control" 
-              style={{ width: '100%', appearance: 'none' }}
-              value={selectedPatient}
-              onChange={(e) => setSelectedPatient(e.target.value)}
-            >
-              <option value="">-- Buscar Paciente --</option>
-              {patients.map((p: any) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <ChevronDown size={20} style={{ position: 'absolute', right: '1rem', color: 'var(--text-muted)', pointerEvents: 'none' }} />
-          </div>
+      <div className="glass-panel no-print" style={{ padding: '1.5rem', marginBottom: '2rem', display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+        <div className="input-group" style={{ margin: 0, flex: '1 1 300px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Search size={16} /> Buscar por Paciente ou Plano</label>
+          <input 
+            type="text" 
+            className="input-control" 
+            placeholder="Digite o nome do paciente ou plano..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="input-group" style={{ margin: 0, flex: '0 0 200px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Filter size={16} /> Status do Plano</label>
+          <select 
+            className="input-control" 
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="ALL">Todos os Status</option>
+            <option value="PENDING">Pendente</option>
+            <option value="ACTIVE">Em Andamento</option>
+            <option value="COMPLETED">Concluído</option>
+            <option value="CANCELLED">Cancelado</option>
+          </select>
         </div>
       </div>
 
-      {isLoadingPatients && <p>Carregando pacientes...</p>}
-      {selectedPatient && isLoadingTreatments && <p>Carregando tratamentos...</p>}
+      {isLoadingTreatments && <p>Carregando tratamentos...</p>}
 
-      {selectedPatient && !isLoadingTreatments && treatments.length === 0 && (
+      {!isLoadingTreatments && filteredTreatments.length === 0 && (
         <div className="glass-panel" style={{ padding: '4rem 2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
           <Stethoscope size={48} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
-          <p style={{ fontSize: '1.125rem' }}>Este paciente ainda não possui nenhum plano de tratamento.</p>
-          <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>Crie um novo orçamento para começar.</p>
+          <p style={{ fontSize: '1.125rem' }}>Nenhum plano de tratamento encontrado.</p>
+          <p style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>Ajuste os filtros ou crie um novo orçamento para começar.</p>
         </div>
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        {treatments.map((treatment: any) => {
+        {filteredTreatments.map((treatment: any) => {
           const totalValue = treatment.procedures?.reduce((acc: number, curr: any) => acc + (curr.price || 0), 0) || 0;
           const completedCount = treatment.procedures?.filter((p:any) => p.isCompleted).length || 0;
           const totalProcs = treatment.procedures?.length || 0;
           const progress = totalProcs === 0 ? 0 : Math.round((completedCount / totalProcs) * 100);
 
+          const isExpanded = expandedTreatments[treatment.id];
+
           return (
             <div key={treatment.id} className={`glass-panel treatment-card ${printingId === treatment.id ? 'printing' : ''}`} style={{ overflow: 'hidden' }}>
-              <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', backgroundColor: 'rgba(255,255,255,0.4)' }}>
-                <div>
-                  {/* Print-only Header */}
-                  <div className="print-only" style={{ marginBottom: '2rem', borderBottom: '2px solid #333', paddingBottom: '1rem' }}>
-                    <h2 style={{ fontSize: '20pt', margin: 0 }}>PLANO DE TRATAMENTO</h2>
-                    <p style={{ fontSize: '12pt', marginTop: '0.5rem' }}>
-                      <strong>Paciente:</strong> {patients.find((p:any) => p.id === selectedPatient)?.name}
-                    </p>
-                    <p style={{ fontSize: '10pt', color: '#666' }}>Data: {new Date().toLocaleDateString()}</p>
-                  </div>
+              {/* Print-only Header */}
+              <div className="print-only" style={{ padding: '2rem 1.5rem 0', marginBottom: '1rem', borderBottom: '2px solid #333', paddingBottom: '1rem' }}>
+                <h2 style={{ fontSize: '24pt', margin: 0, color: '#000' }}>PLANO DE TRATAMENTO</h2>
+                <p style={{ fontSize: '12pt', marginTop: '0.5rem', color: '#000' }}>
+                  <strong>Paciente:</strong> {treatment.patient?.name || 'Desconhecido'}
+                </p>
+                <p style={{ fontSize: '10pt', color: '#666' }}>Data: {new Date().toLocaleDateString()}</p>
+              </div>
 
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--primary-color)' }}>{treatment.name}</h3>
-                  <p style={{ color: 'var(--text-muted)', marginTop: '0.25rem', fontSize: '0.875rem' }}>{treatment.description || 'Sem descrição adicional'}</p>
-                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', fontSize: '0.875rem' }}>
+              <div 
+                style={{ padding: '1.5rem', borderBottom: isExpanded ? '1px solid var(--border-color)' : 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', backgroundColor: 'rgba(255,255,255,0.4)', cursor: 'pointer', transition: 'background-color 0.2s' }}
+                onClick={() => toggleTreatment(treatment.id)}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.6)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.4)'}
+              >
+                <div>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--primary-color)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span className="no-print" style={{ display: 'flex' }}>
+                      {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </span>
+                    {treatment.name} <span style={{ color: 'var(--text-muted)', fontSize: '1rem', fontWeight: 400 }}>- {treatment.patient?.name}</span>
+                  </h3>
+                  <p style={{ color: 'var(--text-muted)', marginTop: '0.25rem', fontSize: '0.875rem', paddingLeft: '1.75rem' }}>{treatment.description || 'Sem descrição adicional'}</p>
+                  <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', fontSize: '0.875rem', paddingLeft: '1.75rem' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: 'var(--text-main)', fontWeight: 500 }}>
                       <DollarSign size={16} color="var(--secondary-color)" /> Total: {formatCurrency(totalValue)}
                     </span>
@@ -260,7 +303,7 @@ export default function Treatments() {
                     </span>
                   </div>
                 </div>
-                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }}>
+                <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem' }} onClick={e => e.stopPropagation()}>
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button 
                       className="btn btn-secondary" 
@@ -291,10 +334,10 @@ export default function Treatments() {
                     borderRadius: '9999px', 
                     fontSize: '0.75rem', 
                     fontWeight: 600,
-                    backgroundColor: treatment.status === 'ACTIVE' ? 'rgba(6, 182, 212, 0.1)' : 'var(--border-color)',
-                    color: treatment.status === 'ACTIVE' ? 'var(--secondary-color)' : 'var(--text-muted)'
+                    backgroundColor: getStatusBadge(treatment.status).bg,
+                    color: getStatusBadge(treatment.status).color
                   }}>
-                    {treatment.status === 'ACTIVE' ? 'Em Andamento' : treatment.status}
+                    {getStatusBadge(treatment.status).label}
                   </span>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                     Criado em: {new Date(treatment.createdAt).toLocaleDateString()}
@@ -302,40 +345,42 @@ export default function Treatments() {
                 </div>
               </div>
               
-              <div style={{ padding: '0' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: 'rgba(0,0,0,0.02)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Status</th>
-                      <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Procedimento</th>
-                      <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Dente/Região</th>
-                      <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Duração</th>
-                      <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500, textAlign: 'right' }}>Valor (R$)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {treatment.procedures?.map((proc: any, index: number) => (
-                      <tr key={proc.id} style={{ borderBottom: index === treatment.procedures.length - 1 ? 'none' : '1px solid var(--border-color)' }}>
-                        <td style={{ padding: '1rem 1.5rem' }}>
-                          <span style={{ 
-                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                            width: '24px', height: '24px', borderRadius: '50%', 
-                            backgroundColor: proc.isCompleted ? '#10B981' : 'transparent',
-                            border: proc.isCompleted ? 'none' : '2px solid var(--border-color)',
-                            color: 'white', fontSize: '0.75rem'
-                          }}>
-                            {proc.isCompleted && '✓'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '1rem 1.5rem', fontWeight: 500 }}>{proc.name}</td>
-                        <td style={{ padding: '1rem 1.5rem', color: 'var(--text-muted)' }}>{proc.tooth ? getToothRegionName(proc.tooth) : '-'}</td>
-                        <td style={{ padding: '1rem 1.5rem', color: 'var(--text-muted)' }}>{proc.duration} min</td>
-                        <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 500 }}>{formatCurrency(proc.price || 0)}</td>
+              {(isExpanded || printingId === treatment.id) && (
+                <div style={{ padding: '0', animation: 'fadeIn 0.3s ease-in-out' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: 'rgba(0,0,0,0.02)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
+                        <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Status</th>
+                        <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Procedimento</th>
+                        <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Dente/Região</th>
+                        <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500 }}>Duração</th>
+                        <th style={{ padding: '0.75rem 1.5rem', fontWeight: 500, textAlign: 'right' }}>Valor (R$)</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {treatment.procedures?.map((proc: any, index: number) => (
+                        <tr key={proc.id} style={{ borderBottom: index === treatment.procedures.length - 1 ? 'none' : '1px solid var(--border-color)' }}>
+                          <td style={{ padding: '1rem 1.5rem' }}>
+                            <span style={{ 
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: '24px', height: '24px', borderRadius: '50%', 
+                              backgroundColor: proc.isCompleted ? '#10B981' : 'transparent',
+                              border: proc.isCompleted ? 'none' : '2px solid var(--border-color)',
+                              color: 'white', fontSize: '0.75rem'
+                            }}>
+                              {proc.isCompleted && '✓'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1rem 1.5rem', fontWeight: 500 }}>{proc.name}</td>
+                          <td style={{ padding: '1rem 1.5rem', color: 'var(--text-muted)' }}>{proc.tooth ? getToothRegionName(proc.tooth) : '-'}</td>
+                          <td style={{ padding: '1rem 1.5rem', color: 'var(--text-muted)' }}>{proc.duration} min</td>
+                          <td style={{ padding: '1rem 1.5rem', textAlign: 'right', fontWeight: 500 }}>{formatCurrency(proc.price || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           );
         })}
@@ -347,6 +392,20 @@ export default function Treatments() {
             <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem' }}>Novo Plano de Tratamento</h3>
             <form onSubmit={handleSubmit}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="input-group" style={{ gridColumn: 'span 2' }}>
+                  <label>Paciente</label>
+                  <select 
+                    required
+                    className="input-control" 
+                    value={selectedPatient}
+                    onChange={(e) => setSelectedPatient(e.target.value)}
+                  >
+                    <option value="">-- Selecione o Paciente --</option>
+                    {patients.map((p: any) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="input-group" style={{ gridColumn: 'span 2' }}>
                   <label>Nome do Plano (ex: Reabilitação Oral, Limpeza)</label>
                   <input required type="text" className="input-control" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
@@ -502,6 +561,7 @@ export default function Treatments() {
               <div className="input-group">
                 <label>Status</label>
                 <select className="input-control" value={editingTreatment.status} onChange={e => setEditingTreatment({...editingTreatment, status: e.target.value})}>
+                  <option value="PENDING">Pendente</option>
                   <option value="ACTIVE">Em Andamento</option>
                   <option value="COMPLETED">Concluído</option>
                   <option value="CANCELLED">Cancelado</option>
