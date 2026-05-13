@@ -1,11 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchTransactions, createTransaction, fetchPatients } from '../api';
 import { useToast } from '../context/ToastContext';
 import { 
   DollarSign, TrendingUp, TrendingDown, Clock, 
-  Plus, Calendar, User, Search, Download, CreditCard, Pix, Banknote
+  Plus, Calendar, User, Search, Download, CreditCard, Pix, Banknote, Trash
 } from 'lucide-react';
+import { fetchTransactions, createTransaction, fetchPatients, deleteTransaction } from '../api';
 import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 
@@ -38,6 +38,17 @@ export default function Financeiro() {
       setIsModalOpen(false);
       resetForm();
       showToast('Transação registrada!');
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteTransaction,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      showToast('Transação excluída!');
+    },
+    onError: () => {
+      showToast('Erro ao excluir transação.');
     }
   });
 
@@ -154,6 +165,7 @@ export default function Financeiro() {
                 <th>Método</th>
                 <th>Tipo</th>
                 <th style={{ textAlign: 'right' }}>Valor</th>
+                <th style={{ textAlign: 'center' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -191,6 +203,29 @@ export default function Financeiro() {
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: t.type === 'INCOME' ? '#10b981' : '#ef4444' }}>
                       {t.type === 'INCOME' ? '+' : '-'} R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button 
+                        onClick={() => {
+                          if (window.confirm('Tem certeza que deseja excluir esta transação?')) {
+                            deleteMutation.mutate(t.id);
+                          }
+                        }}
+                        style={{ 
+                          background: 'none', 
+                          border: 'none', 
+                          cursor: 'pointer', 
+                          color: '#ef4444', 
+                          padding: '0.5rem',
+                          borderRadius: '8px',
+                          transition: 'background-color 0.2s'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                        disabled={deleteMutation.isPending}
+                      >
+                        <Trash size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))

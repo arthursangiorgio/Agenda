@@ -163,6 +163,14 @@ export const createTransaction = async (data: { amount: number; method: string; 
   return res.json();
 };
 
+export const deleteTransaction = async (id: string) => {
+  const res = await fetch(`${API_URL}/transactions/${id}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+  return res.json();
+};
+
 export const fetchAllTreatments = async () => {
   const res = await fetch(`${API_URL}/treatments`, {
     headers: getHeaders(),

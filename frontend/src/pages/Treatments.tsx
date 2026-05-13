@@ -205,6 +205,10 @@ export default function Treatments() {
       case 'PENDING': return { label: 'Pendente', bg: 'rgba(241, 245, 249, 1)', color: 'var(--text-muted)' };
       case 'COMPLETED': return { label: 'Concluído', bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' };
       case 'CANCELLED': return { label: 'Cancelado', bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' };
+      case 'FOLLOW_UP': return { label: 'Acompanhamento', bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981' };
+      case 'CONTACTED': return { label: 'Contato Realizado', bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' };
+      case 'RETRY': return { label: 'Retornar Novamente', bg: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' };
+      case 'REJECTED': return { label: 'Orçamento Reprovado', bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' };
       default: return { label: status || 'Pendente', bg: 'var(--border-color)', color: 'var(--text-muted)' };
     }
   };
@@ -244,6 +248,7 @@ export default function Treatments() {
             <option value="ALL">Todos os Status</option>
             <option value="PENDING">Pendente</option>
             <option value="ACTIVE">Em Andamento</option>
+            <option value="FOLLOW_UP">Acompanhamento</option>
             <option value="COMPLETED">Concluído</option>
             <option value="CANCELLED">Cancelado</option>
           </select>
@@ -563,6 +568,7 @@ export default function Treatments() {
                 <select className="input-control" value={editingTreatment.status} onChange={e => setEditingTreatment({...editingTreatment, status: e.target.value})}>
                   <option value="PENDING">Pendente</option>
                   <option value="ACTIVE">Em Andamento</option>
+                  <option value="FOLLOW_UP">Acompanhamento</option>
                   <option value="COMPLETED">Concluído</option>
                   <option value="CANCELLED">Cancelado</option>
                 </select>

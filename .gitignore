@@ -12,3 +12,5 @@ backend/node_modules/
 .wwebjs_cache/
 backend/.wwebjs_auth/
 backend/.wwebjs_cache/
+scratch/
+backend/scratch/

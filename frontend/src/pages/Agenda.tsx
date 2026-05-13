@@ -10,7 +10,7 @@ import { useToast } from '../context/ToastContext';
 import { 
   Calendar, Clock, User, FileText, Plus, ChevronLeft, ChevronRight, 
   Trash, CheckCircle, XCircle, Send, Users, ShieldAlert, MoreVertical,
-  Printer, MessageSquare
+  Printer, MessageSquare, Phone
 } from 'lucide-react';
 import { 
   addDays, subDays, format, parseISO, isSameDay, addMinutes, 
@@ -262,6 +262,7 @@ export default function Agenda() {
                   const height = ((end.getTime() - start.getTime()) / 60000 / 30) * 60;
                   
                   const dentistColor = app.dentist?.color || '#4F46E5';
+                  const isConfirmed = app.status === 'CONFIRMED';
                   const isCompleted = app.status === 'COMPLETED';
                   const isCancelled = app.status === 'CANCELLED';
 
@@ -271,26 +272,26 @@ export default function Agenda() {
                       onClick={() => setSelectedAppointment(app)}
                       style={{
                         position: 'absolute', left: '4px', right: '4px', top: `${top + 4}px`, height: `${height - 8}px`,
-                        backgroundColor: isCompleted ? '#ecfdf5' : isCancelled ? '#f9fafb' : `${dentistColor}15`,
-                        borderLeft: `4px solid ${isCompleted ? '#10b981' : isCancelled ? '#94a3b8' : dentistColor}`,
-                        borderRadius: '6px', padding: '0.5rem', zIndex: 3, cursor: 'pointer',
+                        backgroundColor: isCompleted ? '#d1fae5' : isConfirmed ? '#ecfdf5' : isCancelled ? '#f9fafb' : `${dentistColor}15`,
+                        borderLeft: `4px solid ${isCompleted ? '#059669' : isConfirmed ? '#10b981' : isCancelled ? '#94a3b8' : dentistColor}`,
+                        borderRadius: '6px', padding: '4px 6px', zIndex: 3, cursor: 'pointer',
                         boxShadow: '0 2px 4px rgba(0,0,0,0.05)', overflow: 'hidden',
-                        transition: 'transform 0.1s', opacity: isCancelled ? 0.6 : 1
+                        display: 'flex', flexDirection: 'column', gap: '1px'
                       }}
                       onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
                       onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                     >
-                      <div style={{ fontWeight: 700, fontSize: '0.8rem', color: isCompleted ? '#065f46' : isCancelled ? '#475569' : '#1e293b' }}>
-                        {app.patient?.name}
+                      <div style={{ fontWeight: 700, fontSize: '0.75rem', color: isCompleted ? '#065f46' : isConfirmed ? '#047857' : isCancelled ? '#475569' : '#1e293b', lineHeight: 1.1 }}>
+                        {app.patient?.name} {isConfirmed && '✅'}
                       </div>
-                      <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Clock size={10} /> {format(start, 'HH:mm')} - {format(end, 'HH:mm')}
+                      
+                      <div style={{ fontSize: '0.6rem', fontWeight: 600, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {app.procedure?.name || 'Não informado'}
                       </div>
-                      {height > 60 && (
-                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px' }}>
-                          {app.procedure?.name}
-                        </div>
-                      )}
+
+                      <div style={{ fontSize: '0.6rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <Clock size={9} /> {format(start, 'HH:mm')} - {format(end, 'HH:mm')}
+                      </div>
                     </div>
                   );
                 })}
@@ -309,10 +310,10 @@ export default function Agenda() {
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Detalhes da Consulta</h3>
                 <span style={{ 
                   fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: '999px',
-                  backgroundColor: selectedAppointment.status === 'COMPLETED' ? '#dcfce7' : '#e0e7ff',
-                  color: selectedAppointment.status === 'COMPLETED' ? '#166534' : '#3730a3'
+                  backgroundColor: selectedAppointment.status === 'COMPLETED' ? '#05966920' : selectedAppointment.status === 'CONFIRMED' ? '#10b98120' : '#e0e7ff',
+                  color: selectedAppointment.status === 'COMPLETED' ? '#065f46' : selectedAppointment.status === 'CONFIRMED' ? '#047857' : '#3730a3'
                 }}>
-                  {selectedAppointment.status}
+                  {selectedAppointment.status === 'COMPLETED' ? 'Concluída' : selectedAppointment.status === 'CONFIRMED' ? 'Confirmada' : 'Agendada'}
                 </span>
               </div>
               <button className="btn-icon" onClick={() => setSelectedAppointment(null)}><XCircle size={24} /></button>
@@ -326,6 +327,16 @@ export default function Agenda() {
                 <div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Paciente</div>
                   <div style={{ fontWeight: 600 }}>{selectedAppointment.patient?.name}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Phone size={20} color="#10b981" />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Telefone</div>
+                  <div style={{ fontWeight: 600 }}>{selectedAppointment.patient?.phone || 'Não informado'}</div>
                 </div>
               </div>
 
@@ -348,6 +359,16 @@ export default function Agenda() {
                   <div style={{ fontWeight: 600 }}>{format(parseISO(selectedAppointment.startTime), "dd/MM/yyyy 'das' HH:mm")} às {format(parseISO(selectedAppointment.endTime), 'HH:mm')}</div>
                 </div>
               </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <FileText size={20} color="#8b5cf6" />
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Procedimento</div>
+                  <div style={{ fontWeight: 600 }}>{selectedAppointment.procedure?.name || 'Não informado'}</div>
+                </div>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -363,10 +384,15 @@ export default function Agenda() {
                 <Printer size={18} /> Imprimir
               </button>
               
-              {selectedAppointment.status === 'SCHEDULED' && (
+              {(selectedAppointment.status === 'SCHEDULED' || selectedAppointment.status === 'CONFIRMED') && (
                 <>
+                  {selectedAppointment.status === 'SCHEDULED' && (
+                    <button className="btn btn-primary" style={{ backgroundColor: '#3b82f6', borderColor: '#3b82f6' }} onClick={() => statusMutation.mutate({ id: selectedAppointment.id, status: 'CONFIRMED' })}>
+                      Confirmar
+                    </button>
+                  )}
                   <button className="btn btn-primary" style={{ backgroundColor: '#10b981', borderColor: '#10b981' }} onClick={() => statusMutation.mutate({ id: selectedAppointment.id, status: 'COMPLETED' })}>
-                    Confirmar
+                    Concluir
                   </button>
                   <button className="btn btn-secondary" style={{ color: '#ef4444', borderColor: '#fee2e2' }} onClick={() => statusMutation.mutate({ id: selectedAppointment.id, status: 'CANCELLED' })}>
                     Faltou

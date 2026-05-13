@@ -250,6 +250,7 @@ app.get('/api/appointments', async (req: AuthRequest, res) => {
       where: { tenantId: req.tenantId },
       include: {
         patient: true,
+        dentist: true,
         procedure: {
           include: { treatment: true }
         }
@@ -333,7 +334,10 @@ app.patch('/api/appointments/:id/status', async (req: AuthRequest, res) => {
       });
     }
 
-    const updated = await prisma.appointment.findFirst({ where: { id, tenantId: req.tenantId } });
+    const updated = await prisma.appointment.findFirst({ 
+      where: { id, tenantId: req.tenantId },
+      include: { patient: true, dentist: true, procedure: true }
+    });
     res.json(updated);
   } catch (error) {
     res.status(500).json({ error: 'Failed to update status' });
@@ -637,6 +641,44 @@ app.post('/api/transactions', async (req: AuthRequest, res) => {
     res.json(transaction);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create transaction' });
+  }
+});
+
+app.delete('/api/transactions/:id', async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  try {
+    const transaction = await prisma.transaction.findFirst({
+      where: { id, tenantId: req.tenantId }
+    });
+
+    if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+
+    // If it's linked to a procedure, we might need to adjust the procedure's paidAmount
+    if (transaction.procedureId && transaction.type !== 'EXPENSE') {
+      const proc = await prisma.procedure.findFirst({
+        where: { id: transaction.procedureId, tenantId: req.tenantId }
+      });
+      if (proc) {
+        const newPaidAmount = Math.max(0, proc.paidAmount - transaction.amount);
+        let status = 'PENDING';
+        if (newPaidAmount > 0 && newPaidAmount < proc.price) status = 'PARTIAL';
+        if (newPaidAmount >= proc.price) status = 'PAID';
+
+        await prisma.procedure.updateMany({
+          where: { id: transaction.procedureId, tenantId: req.tenantId },
+          data: { paidAmount: newPaidAmount, paymentStatus: status }
+        });
+      }
+    }
+
+    await prisma.transaction.deleteMany({
+      where: { id, tenantId: req.tenantId }
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('DELETE TRANSACTION ERROR:', error);
+    res.status(500).json({ error: 'Failed to delete transaction' });
   }
 });
 
