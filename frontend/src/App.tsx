@@ -17,6 +17,7 @@ import { ToastProvider } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import LicenseExpired from './pages/LicenseExpired';
 import './index.css';
 
 const queryClient = new QueryClient();
@@ -30,7 +31,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppLayout() {
-  const { logout, user } = useAuth();
+  const { logout, user, license } = useAuth();
+
+  if (license?.isExpired && user?.role !== 'SUPER_ADMIN') {
+    return <LicenseExpired />;
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#f8fafc' }}>

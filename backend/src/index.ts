@@ -1,9 +1,15 @@
-import express from 'express';
+import express, { Response, NextFunction } from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 import { whatsappService } from './whatsapp';
 import authRoutes from './routes/auth';
+import licensingRoutes from './routes/licensing';
+import webhookRoutes from './routes/webhooks';
 import { authMiddleware, AuthRequest } from './middleware/auth';
+import { loadEnv } from './config';
+
+// Load environment variables from .env
+loadEnv();
 
 const prisma = new PrismaClient();
 const app = express();
@@ -13,11 +19,56 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/licensing', licensingRoutes);
 
-// Protected Routes Middleware
+// Protected Routes Middleware (Checks JWT for all requests under /api, except public routes)
 app.use('/api', (req: any, res, next) => {
-  // Skip auth for public routes if any (none for now)
+  // Skip auth for public webhooks and simulated checkout
+  if (req.path.includes('/webhooks/') || req.path.includes('/licensing/mock-gate')) {
+    return next();
+  }
   authMiddleware(req, res, next);
+});
+
+// Licensing Check Middleware for protected routes
+const licenseCheckMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.role === 'SUPER_ADMIN') {
+    return next(); // Super admins bypass licensing checks
+  }
+  
+  if (!req.tenantId) {
+    return next();
+  }
+
+  try {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.tenantId },
+      select: { licenseExpiresAt: true }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const now = new Date();
+    if (new Date(tenant.licenseExpiresAt) < now) {
+      return res.status(403).json({ error: 'LICENSE_EXPIRED', licenseExpiresAt: tenant.licenseExpiresAt });
+    }
+
+    next();
+  } catch (err) {
+    console.error('License check error:', err);
+    res.status(500).json({ error: 'Internal license check error' });
+  }
+};
+
+// Check license for all protected routes EXCEPT licensing endpoints (status, generate link)
+app.use('/api', (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.path.startsWith('/licensing/')) {
+    return next(); // Bypasses licensing endpoints so user can view expiration page and click pay
+  }
+  licenseCheckMiddleware(req, res, next);
 });
 
 // Initialize WhatsApp
@@ -766,6 +817,116 @@ app.delete('/api/admin/tenants/:id', async (req: AuthRequest, res) => {
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Erro ao excluir clínica' });
+  }
+});
+
+app.put('/api/admin/tenants/:id/license', async (req: AuthRequest, res) => {
+  if (req.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ error: 'Acesso negado. Apenas para Super Administradores.' });
+  }
+
+  const { licenseExpiresAt } = req.body;
+  if (!licenseExpiresAt) {
+    return res.status(400).json({ error: 'Data de expiração é obrigatória.' });
+  }
+
+  try {
+    const updatedTenant = await prisma.tenant.update({
+      where: { id: req.params.id },
+      data: {
+        licenseExpiresAt: new Date(licenseExpiresAt)
+      }
+    });
+
+    console.log(`[ADMIN] Expiration date manually updated for tenant ${updatedTenant.name} (${updatedTenant.id}) to ${updatedTenant.licenseExpiresAt}`);
+    res.json({ success: true, tenant: updatedTenant });
+  } catch (error) {
+    console.error('Error manually updating clinic license:', error);
+    res.status(500).json({ error: 'Erro ao atualizar vencimento da licença.' });
+  }
+});
+
+app.get('/api/admin/payments', async (req: AuthRequest, res) => {
+  if (req.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ error: 'Acesso negado. Apenas para Super Administradores.' });
+  }
+
+  try {
+    const payments = await prisma.processedPayment.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const tenants = await prisma.tenant.findMany({
+      select: { id: true, name: true }
+    });
+
+    const tenantMap = tenants.reduce((acc, t) => {
+      acc[t.id] = t.name;
+      return acc;
+    }, {} as Record<string, string>);
+
+    const detailedPayments = payments.map(p => ({
+      ...p,
+      tenantName: tenantMap[p.tenantId] || 'Clínica Excluída'
+    }));
+
+    res.json(detailedPayments);
+  } catch (error) {
+    console.error('Error fetching admin payments:', error);
+    res.status(500).json({ error: 'Erro ao buscar histórico de pagamentos.' });
+  }
+});
+
+
+
+// Helper functions for dynamic settings
+export async function getSystemSetting(key: string, defaultValue: string): Promise<string> {
+  try {
+    const setting = await prisma.systemSetting.findUnique({ where: { key } });
+    return setting ? setting.value : defaultValue;
+  } catch (err) {
+    return defaultValue;
+  }
+}
+
+export async function setSystemSetting(key: string, value: string): Promise<void> {
+  await prisma.systemSetting.upsert({
+    where: { key },
+    update: { value },
+    create: { key, value }
+  });
+}
+
+// Settings endpoints for Super Admin
+app.get('/api/admin/settings', async (req: AuthRequest, res) => {
+  if (req.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ error: 'Acesso negado.' });
+  }
+
+  try {
+    const priceStr = await getSystemSetting('subscription_price', '99.90');
+    const daysStr = await getSystemSetting('subscription_days', '30');
+    res.json({
+      subscriptionPrice: parseFloat(priceStr),
+      subscriptionDays: parseInt(daysStr, 10)
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Erro ao buscar configurações' });
+  }
+});
+
+app.put('/api/admin/settings', async (req: AuthRequest, res) => {
+  if (req.role !== 'SUPER_ADMIN') {
+    return res.status(403).json({ error: 'Acesso negado.' });
+  }
+
+  const { subscriptionPrice, subscriptionDays } = req.body;
+  try {
+    await setSystemSetting('subscription_price', String(subscriptionPrice));
+    await setSystemSetting('subscription_days', String(subscriptionDays));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: 'Erro ao salvar configurações' });
   }
 });
 

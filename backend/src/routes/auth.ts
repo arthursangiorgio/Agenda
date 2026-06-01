@@ -23,10 +23,14 @@ router.post('/register', async (req, res) => {
 
     // Create Tenant and User in a transaction
     const result = await prisma.$transaction(async (tx) => {
+      const licenseExpiresAt = new Date();
+      licenseExpiresAt.setDate(licenseExpiresAt.getDate() + 30);
+
       const tenant = await tx.tenant.create({
         data: {
           name: companyName,
           slug: slug.toLowerCase().replace(/\s+/g, '-'),
+          licenseExpiresAt
         }
       });
 

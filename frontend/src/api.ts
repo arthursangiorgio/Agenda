@@ -398,3 +398,37 @@ export const deleteTenant = async (id: string) => {
   });
   return res.json();
 };
+
+export const fetchSystemSettings = async () => {
+  const res = await fetch(`${API_URL}/admin/settings`, {
+    headers: getHeaders(),
+  });
+  return res.json();
+};
+
+export const updateSystemSettings = async (data: { subscriptionPrice: number; subscriptionDays: number }) => {
+  const res = await fetch(`${API_URL}/admin/settings`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return res.json();
+};
+
+export const updateTenantLicense = async (id: string, licenseExpiresAt: string) => {
+  const res = await fetch(`${API_URL}/admin/tenants/${id}/license`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify({ licenseExpiresAt }),
+  });
+  return res.json();
+};
+
+export const fetchAdminPayments = async () => {
+  const res = await fetch(`${API_URL}/admin/payments`, {
+    headers: getHeaders(),
+  });
+  return res.json();
+};
+
+

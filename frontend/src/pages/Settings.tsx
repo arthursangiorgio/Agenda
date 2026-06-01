@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchWhatsAppStatus, fetchWhatsAppQr, logoutWhatsApp } from '../api';
-import { Settings as SettingsIcon, MessageSquare, CheckCircle, RefreshCcw, LogOut, Smartphone } from 'lucide-react';
+import { Settings as SettingsIcon, MessageSquare, CheckCircle, RefreshCcw, LogOut, Smartphone, Shield, CreditCard, ExternalLink, Clock } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Settings() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [qrCode, setQrCode] = useState<string | null>(null);
+  const { license, checkLicense, token } = useAuth();
+  const [generatingLink, setGeneratingLink] = useState(false);
 
   const { data: statusData, isLoading: loadingStatus } = useQuery({
     queryKey: ['whatsapp-status'],
@@ -126,6 +129,104 @@ export default function Settings() {
               )}
             </div>
           )}
+        </div>
+
+        {/* Assinatura & Licenciamento Card */}
+        <div className="glass-panel" style={{ padding: '2rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+            <div style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', width: '48px', height: '48px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
+              <Shield size={24} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Licença & Assinatura</h3>
+              <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-muted)' }}>Status da sua conta</p>
+            </div>
+          </div>
+
+          <div style={{ 
+            backgroundColor: license?.isExpired ? '#fef2f2' : '#f0fdf4', 
+            border: `1px solid ${license?.isExpired ? '#fca5a5' : '#bbf7d0'}`,
+            borderRadius: '12px',
+            padding: '1.5rem',
+            marginBottom: '2rem'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.75rem', 
+              color: license?.isExpired ? '#ef4444' : '#16a34a', 
+              fontWeight: 700, 
+              fontSize: '1.1rem',
+              marginBottom: '0.5rem'
+            }}>
+              <Clock size={20} />
+              {license?.isExpired ? 'Licença Expirada' : 'Licença Ativa'}
+            </div>
+            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-main)' }}>
+              {license?.isExpired 
+                ? 'Sua licença expirou. Renove para liberar o acesso ao sistema.' 
+                : `Sua clínica possui acesso liberado por mais ${license?.daysRemaining} dias.`}
+            </p>
+            <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+              Válido até: {license?.licenseExpiresAt ? new Date(license.licenseExpiresAt).toLocaleDateString('pt-BR') : 'N/A'}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <button
+              className="btn btn-primary"
+              style={{ width: '100%', padding: '0.75rem' }}
+              disabled={generatingLink}
+              onClick={async () => {
+                setGeneratingLink(true);
+                try {
+                  const res = await fetch('http://localhost:3002/api/licensing/generate-link', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`
+                    }
+                  });
+                  const data = await res.json();
+                  if (data.success && data.paymentLinkUrl) {
+                    showToast('Link de pagamento gerado!');
+                    await checkLicense();
+                    window.open(data.paymentLinkUrl, '_blank');
+                  } else {
+                    showToast('Erro ao gerar link de pagamento.', 'error');
+                  }
+                } catch (err) {
+                  showToast('Falha na comunicação com o servidor.', 'error');
+                } finally {
+                  setGeneratingLink(false);
+                }
+              }}
+            >
+              {generatingLink ? (
+                <RefreshCcw className="animate-spin" size={18} />
+              ) : (
+                <CreditCard size={18} />
+              )}
+              {`Renovar Licença (R$ ${license?.subscriptionPrice?.toFixed(2).replace('.', ',') || '99,90'})`}
+              <ExternalLink size={14} style={{ marginLeft: '0.25rem' }} />
+            </button>
+
+            <button
+              className="btn btn-secondary"
+              style={{ width: '100%', padding: '0.75rem' }}
+              onClick={async () => {
+                try {
+                  await checkLicense();
+                  showToast('Status da licença atualizado!');
+                } catch (e) {
+                  showToast('Erro ao atualizar.', 'error');
+                }
+              }}
+            >
+              <RefreshCcw size={16} />
+              Atualizar Status da Licença
+            </button>
+          </div>
         </div>
 
         {/* Other Settings (Placeholder) */}
