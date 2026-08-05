@@ -2,6 +2,8 @@ import express from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { emailService } from '../services/emailService';
+import { whatsappService } from '../whatsapp';
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -46,11 +48,48 @@ router.post('/register', async (req, res) => {
 
       return { tenant, user };
     });
+    
+    // Async Notifications
+    (async () => {
+      try {
+        const adminEmail = await prisma.systemSetting.findUnique({ where: { key: 'admin_notification_email' } });
+        const adminPhone = await prisma.systemSetting.findUnique({ where: { key: 'admin_notification_phone' } });
+        
+        const notificationText = `Novo cadastro no AgendaPro!\n\nClínica: ${result.tenant.name}\nResponsável: ${result.user.name}\nE-mail: ${result.user.email}`;
+        
+        if (adminEmail && adminEmail.value) {
+          const htmlContent = `<h2>Novo cadastro no AgendaPro!</h2>
+            <p><strong>Clínica:</strong> ${result.tenant.name}</p>
+            <p><strong>Responsável:</strong> ${result.user.name}</p>
+            <p><strong>E-mail:</strong> ${result.user.email}</p>`;
+          await emailService.sendNotification(adminEmail.value, 'Novo Cadastro no Sistema', htmlContent);
+        }
+        
+        if (adminPhone && adminPhone.value) {
+          try {
+            await whatsappService.sendMessage(adminPhone.value, notificationText);
+          } catch(e) {
+            console.log('[WHATSAPP] Falha ao notificar admin:', e);
+          }
+        }
+      } catch (err) {
+        console.error('Falha ao enviar notificações de cadastro:', err);
+      }
+    })();
 
     res.json({ success: true, company: result.tenant.name });
   } catch (error: any) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Failed to register company' });
+    if (error.code === 'P2002') {
+      const target = error.meta?.target as string[];
+      if (target?.includes('email')) {
+        return res.status(400).json({ error: 'Este e-mail já está cadastrado.' });
+      }
+      if (target?.includes('slug')) {
+        return res.status(400).json({ error: 'Este identificador já está em uso.' });
+      }
+    }
+    res.status(500).json({ error: 'Falha ao registrar clínica.' });
   }
 });
 

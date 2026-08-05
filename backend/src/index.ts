@@ -15,7 +15,8 @@ const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -210,7 +211,8 @@ app.delete('/api/patients/:id', async (req: AuthRequest, res) => {
 app.get('/api/treatments', async (req: AuthRequest, res) => {
   const treatments = await prisma.treatment.findMany({
     where: { tenantId: req.tenantId },
-    include: { procedures: true, patient: true }
+    include: { procedures: true, patient: true, transactions: true },
+    orderBy: { createdAt: 'desc' }
   });
   res.json(treatments);
 });
@@ -229,40 +231,116 @@ app.get('/api/patients/:id/treatments', async (req: AuthRequest, res) => {
 });
 
 app.post('/api/treatments', async (req: AuthRequest, res) => {
-  const { name, description, patientId, procedures } = req.body;
-  // procedures is an array of objects
-  const treatment = await prisma.treatment.create({
-    data: {
-      name,
-      description,
-      patientId,
-      tenantId: req.tenantId!,
-      procedures: {
-        create: procedures.map((p: any) => ({
-          name: p.name,
-          tooth: p.tooth,
-          price: p.price,
-          duration: p.duration,
-          tenantId: req.tenantId!
-        }))
+  const { name, description, patientId, procedures, subtotal, discount, addition, total, transactions } = req.body;
+  
+  try {
+    const treatment = await prisma.treatment.create({
+      data: {
+        name,
+        description,
+        patientId,
+        subtotal: Number(subtotal) || 0,
+        discount: Number(discount) || 0,
+        addition: Number(addition) || 0,
+        total: Number(total) || 0,
+        tenantId: req.tenantId!,
+        procedures: {
+          create: procedures.map((p: any) => ({
+            name: p.name,
+            tooth: p.tooth,
+            price: Number(p.price) || 0,
+            duration: Number(p.duration) || 30,
+            tenantId: req.tenantId!
+          }))
+        }
+      },
+      include: { procedures: true }
+    });
+
+    if (transactions && transactions.length > 0) {
+      for (const t of transactions) {
+        await prisma.transaction.create({
+          data: {
+            amount: Number(t.amount),
+            method: t.method,
+            type: 'INCOME',
+            status: t.status || 'PAID',
+            dueDate: t.dueDate ? new Date(t.dueDate) : null,
+            installment: t.installment || null,
+            description: `Tratamento: ${name}${t.installment ? ` (Parc. ${t.installment})` : ''}`,
+            patientId,
+            treatmentId: treatment.id,
+            tenantId: req.tenantId!
+          }
+        });
       }
-    },
-    include: { procedures: true }
-  });
-  res.json(treatment);
+    }
+
+    res.json(treatment);
+  } catch (error) {
+    console.error('POST TREATMENT ERROR:', error);
+    res.status(500).json({ error: 'Falha ao criar tratamento' });
+  }
 });
 
 app.put('/api/treatments/:id', async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const { name, description, status } = req.body;
+  const { name, description, status, subtotal, discount, addition, total, transactions } = req.body;
   try {
+    const dataToUpdate: any = { name, description, status };
+    if (subtotal !== undefined) dataToUpdate.subtotal = Number(subtotal);
+    if (discount !== undefined) dataToUpdate.discount = Number(discount);
+    if (addition !== undefined) dataToUpdate.addition = Number(addition);
+    if (total !== undefined) dataToUpdate.total = Number(total);
+
     await prisma.treatment.updateMany({
       where: { id, tenantId: req.tenantId },
-      data: { name, description, status }
+      data: dataToUpdate
     });
-    const updated = await prisma.treatment.findFirst({ where: { id, tenantId: req.tenantId } });
-    res.json(updated);
+    
+    const treatment = await prisma.treatment.findFirst({ where: { id, tenantId: req.tenantId } });
+
+    if (transactions && treatment) {
+      // Deleta as parcelas pendentes E as entradas iniciais para recriá-las
+      await prisma.transaction.deleteMany({
+        where: { 
+          treatmentId: id, 
+          tenantId: req.tenantId, 
+          OR: [
+            { status: 'PENDING' },
+            { installment: null }
+          ]
+        }
+      });
+      
+      for (const t of transactions) {
+        // Só cria novas transações (as que não tem id ainda)
+        if (!t.id) {
+          await prisma.transaction.create({
+            data: {
+              amount: Number(t.amount),
+              method: t.method,
+              type: 'INCOME',
+              status: t.status || 'PENDING',
+              dueDate: t.dueDate ? new Date(t.dueDate) : null,
+              installment: t.installment || null,
+              description: `Tratamento: ${name}${t.installment ? ` (Parc. ${t.installment})` : ''}`,
+              patientId: treatment.patientId,
+              treatmentId: id,
+              tenantId: req.tenantId!
+            }
+          });
+        } else if (t.id && t.status === 'PENDING') {
+           // Se tivesse um jeito de atualizar as pendentes com ID... mas nós já deletamos as pendentes!
+           // Como deletamos, as que tinham ID e eram PENDING sumiram, então o frontend deve mandar as novas sem ID.
+           // Se o frontend mandar com ID, é porque são pagas. Ignoramos.
+        }
+      }
+    }
+
+    res.json(treatment);
   } catch (error) {
+    console.error('PUT TREATMENT ERROR', error);
     res.status(500).json({ error: 'Failed to update treatment' });
   }
 });
@@ -297,8 +375,14 @@ app.delete('/api/treatments/:id', async (req: AuthRequest, res) => {
 // --- APPOINTMENTS ---
 app.get('/api/appointments', async (req: AuthRequest, res) => {
   try {
+    const patientId = req.query.patientId as string;
+    const whereClause: any = { tenantId: req.tenantId };
+    if (patientId) {
+      whereClause.patientId = patientId;
+    }
+
     const appointments = await prisma.appointment.findMany({
-      where: { tenantId: req.tenantId },
+      where: whereClause,
       include: {
         patient: true,
         dentist: true,
@@ -559,9 +643,20 @@ app.get('/api/dentists', async (req: AuthRequest, res) => {
 
 app.post('/api/dentists', async (req: AuthRequest, res) => {
   try {
-    const { name, specialization, color } = req.body;
+    const { name, specialization, color, phone, email, cro, workingDays, workingStart, workingEnd } = req.body;
     const dentist = await prisma.dentist.create({
-      data: { name, specialization, color, tenantId: req.tenantId! }
+      data: { 
+        name, 
+        specialization: specialization || null, 
+        color, 
+        phone: phone || null, 
+        email: email || null, 
+        cro: cro || null, 
+        workingDays: workingDays || null,
+        workingStart: workingStart || null,
+        workingEnd: workingEnd || null,
+        tenantId: req.tenantId! 
+      }
     });
     res.json(dentist);
   } catch (error) {
@@ -571,11 +666,21 @@ app.post('/api/dentists', async (req: AuthRequest, res) => {
 
 app.put('/api/dentists/:id', async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const { name, specialization, color } = req.body;
+  const { name, specialization, color, phone, email, cro, workingDays, workingStart, workingEnd } = req.body;
   try {
     await prisma.dentist.updateMany({
       where: { id, tenantId: req.tenantId },
-      data: { name, specialization, color }
+      data: { 
+        name, 
+        specialization: specialization || null, 
+        color,
+        phone: phone || null,
+        email: email || null,
+        cro: cro || null,
+        workingDays: workingDays || null,
+        workingStart: workingStart || null,
+        workingEnd: workingEnd || null
+      }
     });
     const updated = await prisma.dentist.findFirst({ where: { id, tenantId: req.tenantId } });
     res.json(updated);
@@ -732,6 +837,53 @@ app.delete('/api/transactions/:id', async (req: AuthRequest, res) => {
     res.status(500).json({ error: 'Failed to delete transaction' });
   }
 });
+
+// Dar baixa em uma transação pendente
+app.patch('/api/transactions/:id/pay', async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  try {
+    const transaction = await prisma.transaction.findFirst({
+      where: { id, tenantId: req.tenantId }
+    });
+
+    if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+
+    const updated = await prisma.transaction.update({
+      where: { id },
+      data: { status: 'PAID', date: new Date() }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('PAY TRANSACTION ERROR:', error);
+    res.status(500).json({ error: 'Failed to update transaction status' });
+  }
+});
+
+// Estornar uma transação paga (volta para PENDING)
+app.patch('/api/transactions/:id/refund', async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  try {
+    const transaction = await prisma.transaction.findFirst({
+      where: { id, tenantId: req.tenantId }
+    });
+
+    if (!transaction) return res.status(404).json({ error: 'Transaction not found' });
+
+    const updated = await prisma.transaction.update({
+      where: { id },
+      data: { status: 'PENDING' }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    console.error('REFUND TRANSACTION ERROR:', error);
+    res.status(500).json({ error: 'Failed to refund transaction' });
+  }
+});
+
+
+
 
 // --- ATTACHMENTS ---
 app.get('/api/patients/:id/attachments', async (req: AuthRequest, res) => {
@@ -906,9 +1058,14 @@ app.get('/api/admin/settings', async (req: AuthRequest, res) => {
   try {
     const priceStr = await getSystemSetting('subscription_price', '99.90');
     const daysStr = await getSystemSetting('subscription_days', '30');
+    const adminNotificationEmail = await getSystemSetting('admin_notification_email', '');
+    const adminNotificationPhone = await getSystemSetting('admin_notification_phone', '');
+    
     res.json({
       subscriptionPrice: parseFloat(priceStr),
-      subscriptionDays: parseInt(daysStr, 10)
+      subscriptionDays: parseInt(daysStr, 10),
+      adminNotificationEmail,
+      adminNotificationPhone
     });
   } catch (e) {
     res.status(500).json({ error: 'Erro ao buscar configurações' });
@@ -920,10 +1077,18 @@ app.put('/api/admin/settings', async (req: AuthRequest, res) => {
     return res.status(403).json({ error: 'Acesso negado.' });
   }
 
-  const { subscriptionPrice, subscriptionDays } = req.body;
+  const { subscriptionPrice, subscriptionDays, adminNotificationEmail, adminNotificationPhone } = req.body;
   try {
     await setSystemSetting('subscription_price', String(subscriptionPrice));
     await setSystemSetting('subscription_days', String(subscriptionDays));
+    
+    if (adminNotificationEmail !== undefined) {
+      await setSystemSetting('admin_notification_email', adminNotificationEmail);
+    }
+    if (adminNotificationPhone !== undefined) {
+      await setSystemSetting('admin_notification_phone', adminNotificationPhone);
+    }
+    
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: 'Erro ao salvar configurações' });

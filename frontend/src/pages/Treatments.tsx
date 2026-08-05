@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchPatients, fetchTreatments, fetchAllTreatments, createTreatment, updateTreatment, deleteTreatment, fetchCatalog, deleteAllAppointments } from '../api';
-import { Plus, ChevronDown, ChevronUp, Stethoscope, Activity, Trash, DollarSign, Clock, Edit, BookOpen, Printer, Search, Filter } from 'lucide-react';
+import { fetchPatients, fetchTreatments, fetchAllTreatments, createTreatment, updateTreatment, deleteTreatment, fetchCatalog, deleteAllAppointments, payTransaction, refundTransaction } from '../api';
+import { Plus, ChevronDown, ChevronUp, Stethoscope, Activity, Trash, DollarSign, Clock, Edit, BookOpen, Printer, Search, Filter, CheckCircle2, RotateCcw } from 'lucide-react';
 import { Tooth, FaceType, getToothRegionName } from '../components/Tooth';
 
 interface ProcedureData {
@@ -52,11 +52,23 @@ export default function Treatments() {
   
   // Form State
   const [formData, setFormData] = useState({ name: '', description: '' });
+  const [paymentMethod, setPaymentMethod] = useState('NONE');
   const [procedures, setProcedures] = useState<ProcedureData[]>([
     { name: '', tooth: '', price: 0, duration: 30 }
   ]);
+  const [modalTab, setModalTab] = useState<'procedures' | 'billing'>('procedures');
+  const [paidInstallmentsSum, setPaidInstallmentsSum] = useState<number>(0);
+  const [discount, setDiscount] = useState<number>(0);
+  const [addition, setAddition] = useState<number>(0);
+  const [paymentEntries, setPaymentEntries] = useState([{ method: 'PIX', amount: 0 }]);
+  const [installmentsCount, setInstallmentsCount] = useState<number>(1);
+  const [installmentsInterval, setInstallmentsInterval] = useState<number>(30);
+  const [generatedInstallments, setGeneratedInstallments] = useState<any[]>([]);
 
-
+  const subtotal = procedures.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
+  const total = subtotal - discount + addition;
+  const paymentsSum = paymentEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const remaining = total - paymentsSum - paidInstallmentsSum;
   const { data: patients = [], isLoading: isLoadingPatients } = useQuery({ 
     queryKey: ['patients'], 
     queryFn: fetchPatients 
@@ -89,6 +101,11 @@ export default function Treatments() {
       setProcedures([{ name: '', tooth: '', price: 0, duration: 30 }]);
       setSelectedTooth(null);
       setSelectedPatient('');
+      setDiscount(0);
+      setAddition(0);
+      setPaidInstallmentsSum(0);
+      setPaymentEntries([{ method: 'PIX', amount: 0 }]);
+      setGeneratedInstallments([]);
     }
   });
 
@@ -97,11 +114,105 @@ export default function Treatments() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['treatments'] });
       setEditingTreatment(null);
+      setIsModalOpen(false);
     }
   });
 
+  const handleEditClick = (treatment: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingTreatment(treatment);
+    setFormData({ name: treatment.name, description: treatment.description || '' });
+    setSelectedPatient(treatment.patientId);
+    
+    if (treatment.procedures && treatment.procedures.length > 0) {
+       setProcedures(treatment.procedures.map((p: any) => ({
+         name: p.name,
+         tooth: p.tooth || '',
+         price: p.price,
+         duration: p.duration,
+         color: '#3b82f6'
+       })));
+    } else {
+       setProcedures([]);
+    }
+    
+    setDiscount(treatment.discount || 0);
+    setAddition(treatment.addition || 0);
+    
+    // Carrega entradas iniciais (transações pagas sem parcela)
+    if (treatment.transactions && treatment.transactions.length > 0) {
+      const initialPayments = treatment.transactions.filter((t:any) => !t.installment && t.status === 'PAID');
+      if (initialPayments.length > 0) {
+        setPaymentEntries(initialPayments.map((p:any) => ({
+          method: p.method,
+          amount: p.amount
+        })));
+      } else {
+        setPaymentEntries([{ method: 'PIX', amount: 0 }]);
+      }
+      
+      // Salva o total já pago em parcelas para não abater de novo
+      const paidInst = treatment.transactions.filter((t:any) => t.installment && t.status === 'PAID');
+      const paidSum = paidInst.reduce((sum:number, t:any) => sum + t.amount, 0);
+      setPaidInstallmentsSum(paidSum);
+    } else {
+      setPaymentEntries([{ method: 'PIX', amount: 0 }]);
+      setPaidInstallmentsSum(0);
+    }
+    
+    // Carrega TODAS as parcelas (pagas e pendentes) para mostrar histórico completo
+    if (treatment.transactions && treatment.transactions.length > 0) {
+      const installments = treatment.transactions
+        .filter((t:any) => t.installment)
+        .sort((a:any, b:any) => a.installment - b.installment);
+      if (installments.length > 0) {
+        setGeneratedInstallments(installments.map((p:any) => ({
+          _id: p.id,
+          installment: p.installment,
+          dueDate: p.dueDate ? p.dueDate.split('T')[0] : '',
+          amount: p.amount,
+          method: p.method,
+          status: p.status
+        })));
+        setInstallmentsCount(installments.filter((t:any) => t.status === 'PENDING').length || installments.length);
+      } else {
+        setGeneratedInstallments([]);
+      }
+    } else {
+      setGeneratedInstallments([]);
+    }
+    
+    setIsModalOpen(true);
+  };
+
   const deleteTreatmentMutation = useMutation({
     mutationFn: deleteTreatment,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['treatments'] });
+    }
+  });
+
+  const payInstallmentMutation = useMutation({
+    mutationFn: payTransaction,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['treatments'] });
+      if (editingTreatment) {
+        const updated = allTreatments.find((t: any) => t.id === editingTreatment.id);
+        if (updated) {
+          setGeneratedInstallments(prev =>
+            prev.map(inst =>
+              inst._id && inst._id === payInstallmentMutation.variables
+                ? { ...inst, status: 'PAID' }
+                : inst
+            )
+          );
+        }
+      }
+    }
+  });
+
+  const refundInstallmentMutation = useMutation({
+    mutationFn: refundTransaction,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['treatments'] });
     }
@@ -185,18 +296,61 @@ export default function Treatments() {
     );
   };
 
+  const generateInstallments = () => {
+    if (remaining <= 0 || installmentsCount < 1) return;
+    
+    const installmentValue = Number((remaining / installmentsCount).toFixed(2));
+    const newInstallments = [];
+    
+    for (let i = 1; i <= installmentsCount; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() + (i * installmentsInterval));
+      
+      let val = installmentValue;
+      // Handle rounding error on last installment
+      if (i === installmentsCount) {
+        val = Number((remaining - (installmentValue * (installmentsCount - 1))).toFixed(2));
+      }
+      
+      newInstallments.push({
+        installment: i,
+        dueDate: date.toISOString().split('T')[0],
+        amount: val,
+        method: 'CARD', // Default method for generated installments
+        status: 'PENDING'
+      });
+    }
+    setGeneratedInstallments(newInstallments);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPatient) {
       alert('Por favor, selecione um paciente primeiro.');
       return;
     }
-    mutation.mutate({
+    
+    const payload = {
       name: formData.name,
       description: formData.description,
+      status: editingTreatment ? editingTreatment.status : 'ACTIVE',
       patientId: selectedPatient,
+      subtotal,
+      discount,
+      addition,
+      total,
+      transactions: [
+        ...paymentEntries.filter(e => e.amount > 0).map(e => ({ amount: e.amount, method: e.method, status: 'PAID', dueDate: new Date().toISOString() })),
+        ...generatedInstallments.map(gi => ({ ...gi, dueDate: gi.dueDate ? new Date(gi.dueDate).toISOString() : new Date().toISOString() }))
+      ],
       procedures: procedures.filter(p => p.name.trim() !== '')
-    });
+    };
+
+    if (editingTreatment) {
+      updateMutation.mutate({ id: editingTreatment.id, data: payload });
+    } else {
+      mutation.mutate(payload);
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -222,7 +376,18 @@ export default function Treatments() {
     <div className="page-container">
       <div className="page-header">
         <h2 className="page-title">Planos de Tratamento</h2>
-        <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
+        <button className="btn btn-primary" onClick={() => {
+          setEditingTreatment(null);
+          setFormData({ name: '', description: '' });
+          setSelectedPatient('');
+          setProcedures([{ name: '', tooth: '', price: 0, duration: 30 }]);
+          setDiscount(0);
+          setAddition(0);
+          setPaidInstallmentsSum(0);
+          setPaymentEntries([{ method: 'PIX', amount: 0 }]);
+          setGeneratedInstallments([]);
+          setIsModalOpen(true);
+        }}>
           <Plus size={18} /> Novo Orçamento / Plano
         </button>
       </div>
@@ -320,7 +485,7 @@ export default function Treatments() {
                     <button 
                       className="btn btn-secondary" 
                       style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                      onClick={() => setEditingTreatment(treatment)}
+                      onClick={(e) => handleEditClick(treatment, e)}
                     >
                       <Edit size={14} /> Editar
                     </button>
@@ -394,8 +559,25 @@ export default function Treatments() {
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '1rem' }}>
           <div className="glass-panel" style={{ width: '100%', maxWidth: '950px', padding: '2rem', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem' }}>Novo Plano de Tratamento</h3>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem' }}>
+              {editingTreatment ? 'Editar Plano de Tratamento' : 'Novo Plano de Tratamento'}
+            </h3>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+              <button 
+                type="button"
+                onClick={() => setModalTab('procedures')}
+                style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', fontWeight: modalTab === 'procedures' ? 600 : 400, color: modalTab === 'procedures' ? 'var(--primary-color)' : 'var(--text-main)', borderBottom: modalTab === 'procedures' ? '2px solid var(--primary-color)' : 'none', cursor: 'pointer' }}>
+                Procedimentos
+              </button>
+              <button 
+                type="button"
+                onClick={() => setModalTab('billing')}
+                style={{ background: 'none', border: 'none', padding: '0.5rem 1rem', fontWeight: modalTab === 'billing' ? 600 : 400, color: modalTab === 'billing' ? 'var(--primary-color)' : 'var(--text-main)', borderBottom: modalTab === 'billing' ? '2px solid var(--primary-color)' : 'none', cursor: 'pointer' }}>
+                Faturamento
+              </button>
+            </div>
             <form onSubmit={handleSubmit}>
+              <div style={{ display: modalTab === 'procedures' ? 'block' : 'none' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                 <div className="input-group" style={{ gridColumn: 'span 2' }}>
                   <label>Paciente</label>
@@ -529,10 +711,197 @@ export default function Treatments() {
                 </div>
               </div>
 
+              </div>
+
+              <div style={{ display: modalTab === 'billing' ? 'block' : 'none' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                   {/* Left Side: Resumo and Conditions */}
+                   <div>
+                     <div style={{ backgroundColor: 'rgba(0,0,0,0.02)', padding: '1rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}><span>SubTotal:</span> <strong>{formatCurrency(subtotal)}</strong></div>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', alignItems: 'center' }}>
+                         <span>Desconto (R$):</span> 
+                         <input type="number" min="0" step="0.01" className="input-control" style={{ width: '100px' }} value={discount} onChange={e => setDiscount(Number(e.target.value))} />
+                       </div>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', alignItems: 'center' }}>
+                         <span>Acréscimo (R$):</span> 
+                         <input type="number" min="0" step="0.01" className="input-control" style={{ width: '100px' }} value={addition} onChange={e => setAddition(Number(e.target.value))} />
+                       </div>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', fontSize: '1.125rem' }}><span>Total:</span> <strong>{formatCurrency(total)}</strong></div>
+                     </div>
+
+                     <h5 style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Entradas / Pagamento Inicial</h5>
+                     {paymentEntries.map((entry, index) => (
+                       <div key={index} style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                         <select className="input-control" style={{ flex: 1 }} value={entry.method} onChange={e => {
+                           const newE = [...paymentEntries]; newE[index].method = e.target.value; setPaymentEntries(newE);
+                         }}>
+                           <option value="PIX">PIX</option>
+                           <option value="CARD">Cartão de Crédito</option>
+                           <option value="DEBIT">Cartão de Débito</option>
+                           <option value="CASH">Dinheiro</option>
+                         </select>
+                         <input type="number" min="0" step="0.01" className="input-control" style={{ width: '120px' }} value={entry.amount || ''} onChange={e => {
+                           const newE = [...paymentEntries]; newE[index].amount = Number(e.target.value); setPaymentEntries(newE);
+                         }} placeholder="Valor" />
+                       </div>
+                     ))}
+                     <button type="button" onClick={() => setPaymentEntries([...paymentEntries, { method: 'PIX', amount: 0 }])} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontSize: '0.875rem', marginBottom: '1rem' }}>+ Adicionar Forma de Pagamento</button>
+
+                     <div style={{ display: 'flex', justifyContent: 'space-between', backgroundColor: 'rgba(0,0,0,0.05)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem' }}>
+                       <span>Restante a parcelar:</span>
+                       <strong style={{ color: remaining > 0 ? '#ef4444' : '#10b981' }}>{formatCurrency(remaining)}</strong>
+                     </div>
+
+                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}>
+                        <div className="input-group" style={{ margin: 0, flex: 1 }}>
+                          <label>Qtd. Parcelas</label>
+                          <input type="number" min="1" className="input-control" value={installmentsCount} onChange={e => setInstallmentsCount(Number(e.target.value))} />
+                        </div>
+                        <div className="input-group" style={{ margin: 0, flex: 1 }}>
+                          <label>Intervalo (Dias)</label>
+                          <input type="number" min="1" className="input-control" value={installmentsInterval} onChange={e => setInstallmentsInterval(Number(e.target.value))} />
+                        </div>
+                        <button type="button" onClick={generateInstallments} className="btn btn-secondary" style={{ marginTop: '1.5rem' }}>Gerar</button>
+                     </div>
+                   </div>
+
+                   {/* Right Side: Installments Table */}
+                   <div>
+                     <h5 style={{ fontWeight: 600, marginBottom: '1rem' }}>Parcelamento Gerado</h5>
+                     {generatedInstallments.length === 0 ? (
+                       <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center', marginTop: '2rem' }}>Nenhuma parcela gerada.</p>
+                     ) : (
+                       <table className="data-table">
+                         <thead>
+                           <tr>
+                             <th>Parc.</th>
+                             <th>Vencimento</th>
+                             <th>Valor</th>
+                             <th>Método</th>
+                             <th>Status</th>
+                             {editingTreatment && <th style={{ textAlign: 'center' }}>Ação</th>}
+                           </tr>
+                         </thead>
+                         <tbody>
+                           {generatedInstallments.map((inst, i) => (
+                             <tr key={i} style={{ opacity: inst.status === 'PAID' ? 0.7 : 1, backgroundColor: inst.status === 'PAID' ? 'rgba(16,185,129,0.04)' : 'transparent' }}>
+                               <td>{inst.installment}</td>
+                               <td>
+                                 {inst.status === 'PAID' ? (
+                                   <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                                     {inst.dueDate ? new Date(inst.dueDate + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}
+                                   </span>
+                                 ) : (
+                                   <input type="date" className="input-control" style={{ padding: '0.25rem', fontSize: '0.875rem' }} value={inst.dueDate} onChange={e => {
+                                     const newG = [...generatedInstallments]; newG[i].dueDate = e.target.value; setGeneratedInstallments(newG);
+                                   }} />
+                                 )}
+                               </td>
+                               <td>
+                                 {inst.status === 'PAID' ? (
+                                   <span style={{ fontWeight: 600 }}>R$ {Number(inst.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                 ) : (
+                                   <input type="number" min="0" step="0.01" className="input-control" style={{ padding: '0.25rem', fontSize: '0.875rem', width: '90px' }} value={inst.amount} onChange={e => {
+                                     const newG = [...generatedInstallments]; newG[i].amount = Number(e.target.value); setGeneratedInstallments(newG);
+                                   }} />
+                                 )}
+                               </td>
+                               <td>
+                                 {inst.status === 'PAID' ? (
+                                   <span style={{ fontSize: '0.875rem' }}>{inst.method}</span>
+                                 ) : (
+                                   <select className="input-control" style={{ padding: '0.25rem', fontSize: '0.875rem' }} value={inst.method} onChange={e => {
+                                     const newG = [...generatedInstallments]; newG[i].method = e.target.value; setGeneratedInstallments(newG);
+                                   }}>
+                                     <option value="CARD">Cartão</option>
+                                     <option value="PLAN">Boleto</option>
+                                     <option value="PIX">PIX</option>
+                                   </select>
+                                 )}
+                               </td>
+                               <td>
+                                 <span style={{
+                                   fontSize: '0.72rem', fontWeight: 700, padding: '0.2rem 0.55rem', borderRadius: '999px',
+                                   backgroundColor: inst.status === 'PAID' ? '#dcfce7' : '#fef3c7',
+                                   color: inst.status === 'PAID' ? '#166534' : '#b45309'
+                                 }}>
+                                   {inst.status === 'PAID' ? '✓ Pago' : 'Pendente'}
+                                 </span>
+                               </td>
+                               {editingTreatment && (
+                                 <td style={{ textAlign: 'center' }}>
+                                   {inst.status === 'PENDING' && inst._id && (
+                                     <button
+                                       type="button"
+                                       title="Dar Baixa (Confirmar Pagamento)"
+                                       onClick={() => {
+                                         if (window.confirm(`Confirmar recebimento da Parcela ${inst.installment} — R$ ${Number(inst.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}?`)) {
+                                           payInstallmentMutation.mutate(inst._id, {
+                                             onSuccess: () => {
+                                               setGeneratedInstallments(prev =>
+                                                 prev.map((p, idx) => idx === i ? { ...p, status: 'PAID' } : p)
+                                               );
+                                             }
+                                           });
+                                         }
+                                       }}
+                                       style={{
+                                         background: 'none', border: '1px solid #10b981', cursor: 'pointer',
+                                         color: '#10b981', padding: '0.3rem 0.55rem', borderRadius: '8px',
+                                         display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                         fontSize: '0.72rem', fontWeight: 600, transition: 'all 0.2s', whiteSpace: 'nowrap'
+                                       }}
+                                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#10b981'; e.currentTarget.style.color = 'white'; }}
+                                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#10b981'; }}
+                                       disabled={payInstallmentMutation.isPending}
+                                     >
+                                       <CheckCircle2 size={12} /> Dar Baixa
+                                     </button>
+                                   )}
+                                   {inst.status === 'PAID' && inst._id && (
+                                     <button
+                                       type="button"
+                                       title="Estornar pagamento"
+                                       onClick={() => {
+                                         if (window.confirm(`Estornar a Parcela ${inst.installment} — R$ ${Number(inst.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}? Ela voltará para Pendente.`)) {
+                                           refundInstallmentMutation.mutate(inst._id, {
+                                             onSuccess: () => {
+                                               setGeneratedInstallments(prev =>
+                                                 prev.map((p, idx) => idx === i ? { ...p, status: 'PENDING' } : p)
+                                               );
+                                             }
+                                           });
+                                         }
+                                       }}
+                                       style={{
+                                         background: 'none', border: '1px solid #f59e0b', cursor: 'pointer',
+                                         color: '#d97706', padding: '0.3rem 0.55rem', borderRadius: '8px',
+                                         display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                                         fontSize: '0.72rem', fontWeight: 600, transition: 'all 0.2s', whiteSpace: 'nowrap'
+                                       }}
+                                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#f59e0b'; e.currentTarget.style.color = 'white'; }}
+                                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#d97706'; }}
+                                       disabled={refundInstallmentMutation.isPending}
+                                     >
+                                       <RotateCcw size={12} /> Estornar
+                                     </button>
+                                   )}
+                                 </td>
+                               )}
+                             </tr>
+                           ))}
+                         </tbody>
+                       </table>
+                     )}
+                   </div>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '2rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setIsModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
-                  {mutation.isPending ? 'Salvando...' : 'Salvar Plano de Tratamento'}
+                <button type="submit" className="btn btn-primary" disabled={mutation.isPending || updateMutation.isPending}>
+                  {mutation.isPending || updateMutation.isPending ? 'Salvando...' : (editingTreatment ? 'Salvar Alterações' : 'Salvar Plano de Tratamento')}
                 </button>
               </div>
             </form>
@@ -540,50 +909,6 @@ export default function Treatments() {
         </div>
       )}
 
-      {editingTreatment && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '1rem' }}>
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '500px', padding: '2rem' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem' }}>Editar Tratamento</h3>
-            <form onSubmit={(e) => {
-              e.preventDefault();
-              updateMutation.mutate({
-                id: editingTreatment.id,
-                data: {
-                  name: editingTreatment.name,
-                  description: editingTreatment.description,
-                  status: editingTreatment.status
-                }
-              });
-            }}>
-              <div className="input-group">
-                <label>Nome do Plano</label>
-                <input required type="text" className="input-control" value={editingTreatment.name} onChange={e => setEditingTreatment({...editingTreatment, name: e.target.value})} />
-              </div>
-              <div className="input-group">
-                <label>Descrição</label>
-                <textarea className="input-control" rows={2} value={editingTreatment.description || ''} onChange={e => setEditingTreatment({...editingTreatment, description: e.target.value})} />
-              </div>
-              <div className="input-group">
-                <label>Status</label>
-                <select className="input-control" value={editingTreatment.status} onChange={e => setEditingTreatment({...editingTreatment, status: e.target.value})}>
-                  <option value="PENDING">Pendente</option>
-                  <option value="ACTIVE">Em Andamento</option>
-                  <option value="FOLLOW_UP">Acompanhamento</option>
-                  <option value="COMPLETED">Concluído</option>
-                  <option value="CANCELLED">Cancelado</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '2rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setEditingTreatment(null)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary" disabled={updateMutation.isPending}>
-                  {updateMutation.isPending ? 'Salvando...' : 'Salvar Alterações'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {treatmentToDelete && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: '1rem' }}>

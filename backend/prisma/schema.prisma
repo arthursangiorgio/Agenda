@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Tenant {
@@ -88,6 +88,12 @@ model Dentist {
   name           String
   specialization String?
   color          String   @default("#4F46E5")
+  phone          String?
+  email          String?
+  cro            String?
+  workingDays    String?  // JSON string, e.g. '["SEG","TER","QUA","QUI","SEX"]'
+  workingStart   String?  // e.g. "08:00"
+  workingEnd     String?  // e.g. "18:00"
   
   tenantId       String
   tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -105,6 +111,11 @@ model Treatment {
   description String?
   status      String   @default("ACTIVE") // ACTIVE, COMPLETED, CANCELLED
   
+  subtotal    Float    @default(0)
+  discount    Float    @default(0)
+  addition    Float    @default(0)
+  total       Float    @default(0)
+  
   patientId   String
   patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
   
@@ -114,7 +125,8 @@ model Treatment {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  procedures Procedure[]
+  procedures   Procedure[]
+  transactions Transaction[]
 }
 
 model Procedure {
@@ -147,12 +159,19 @@ model Transaction {
   date        DateTime @default(now())
   method      String   // PIX, CARD, CASH, PLAN
   type        String   @default("INCOME") // INCOME, EXPENSE
+  status      String   @default("PAID") // PENDING, PAID, CANCELLED
+  dueDate     DateTime?
+  installment Int?
+  description String?
   
   patientId   String?
   patient     Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
   
   procedureId String?
   procedure   Procedure? @relation(fields: [procedureId], references: [id], onDelete: SetNull)
+  
+  treatmentId String?
+  treatment   Treatment? @relation(fields: [treatmentId], references: [id], onDelete: SetNull)
   
   tenantId    String
   tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -272,7 +291,7 @@ model Attachment {
   
   fileName    String
   fileType    String   // image/jpeg, image/png, application/pdf
-  url         String   // Base64 ou path
+  url         String   @db.Text // Base64 ou path
   category    String?  // Radiografia, Foto, Exame, Outros
   
   tenantId    String

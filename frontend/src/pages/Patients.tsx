@@ -107,7 +107,7 @@ export default function Patients() {
       {isLoading ? (
         <p>Carregando pacientes...</p>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '1.5rem' }}>
           {filteredPatients.map((patient: any) => (
             <div key={patient.id} className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

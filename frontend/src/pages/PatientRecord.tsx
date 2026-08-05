@@ -6,12 +6,13 @@ import {
   fetchPatients, fetchPatientRecord, updatePatientRecord, 
   fetchClinicalNotes, createClinicalNote, deleteClinicalNote, 
   fetchTreatments, fetchPeriodontalCharts, createPeriodontalChart,
-  fetchAttachments, createAttachment, deleteAttachment
+  fetchAttachments, createAttachment, deleteAttachment,
+  fetchAppointments
 } from '../api';
 import { useToast } from '../context/ToastContext';
 import { 
   ArrowLeft, AlertTriangle, FileText, Activity, Clock, Trash, 
-  Save, User, Plus, Stethoscope, Printer, Paperclip, ClipboardList, Camera
+  Save, User, Plus, Stethoscope, Printer, Paperclip, ClipboardList, Camera, Calendar
 } from 'lucide-react';
 
 export default function PatientRecord() {
@@ -19,7 +20,7 @@ export default function PatientRecord() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'anamnesis' | 'evolution' | 'documents' | 'perio' | 'attachments'>('anamnesis');
+  const [activeTab, setActiveTab] = useState<'anamnesis' | 'evolution' | 'documents' | 'perio' | 'attachments' | 'agenda'>('agenda');
   const [printingDoc, setPrintingDoc] = useState<any>(null);
 
   // Periodontal State
@@ -53,9 +54,15 @@ export default function PatientRecord() {
     enabled: !!id
   });
 
-  const { data: attachments = [] } = useQuery({
+  const { data: attachments = [], isLoading: loadingAttachments } = useQuery({
     queryKey: ['attachments', id],
     queryFn: () => fetchAttachments(id!),
+    enabled: !!id
+  });
+
+  const { data: patientAppointments = [], isLoading: loadingAppointments } = useQuery({
+    queryKey: ['patientAppointments', id],
+    queryFn: () => fetchAppointments(id!),
     enabled: !!id
   });
 
@@ -73,6 +80,10 @@ export default function PatientRecord() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attachments', id] });
       showToast('Anexo enviado com sucesso!');
+    },
+    onError: (error: any) => {
+      console.error('Erro ao enviar imagem:', error);
+      showToast('Erro ao enviar imagem. Tente novamente.', 'error');
     }
   });
 
@@ -175,11 +186,23 @@ export default function PatientRecord() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '1rem' }}>
         <button 
+          onClick={() => setActiveTab('agenda')}
+          style={{ 
+            display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', 
+            borderRadius: 'var(--radius-md)', border: 'none', cursor: 'pointer', fontWeight: 600,
+            backgroundColor: activeTab === 'agenda' ? 'var(--primary-color)' : 'transparent',
+            color: activeTab === 'agenda' ? 'white' : 'var(--text-main)',
+            transition: 'all 0.2s'
+          }}
+        >
+          <Calendar size={18} /> Agenda
+        </button>
+        <button 
           onClick={() => setActiveTab('anamnesis')}
           style={{ 
             display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', 
             borderRadius: 'var(--radius-md)', border: 'none', cursor: 'pointer', fontWeight: 600,
-            backgroundColor: activeTab === 'anamnesis' ? 'var(--primary-color)' : 'transparent',
+            backgroundColor: activeTab === 'anamnesis' ? 'var(--secondary-color)' : 'transparent',
             color: activeTab === 'anamnesis' ? 'white' : 'var(--text-main)',
             transition: 'all 0.2s'
           }}
@@ -203,7 +226,7 @@ export default function PatientRecord() {
           style={{ 
             display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', 
             borderRadius: 'var(--radius-md)', border: 'none', cursor: 'pointer', fontWeight: 600,
-            backgroundColor: activeTab === 'documents' ? 'var(--primary-color)' : 'transparent',
+            backgroundColor: activeTab === 'documents' ? 'var(--secondary-color)' : 'transparent',
             color: activeTab === 'documents' ? 'white' : 'var(--text-main)',
             transition: 'all 0.2s'
           }}
@@ -227,7 +250,7 @@ export default function PatientRecord() {
           style={{ 
             display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', 
             borderRadius: 'var(--radius-md)', border: 'none', cursor: 'pointer', fontWeight: 600,
-            backgroundColor: activeTab === 'attachments' ? 'var(--primary-color)' : 'transparent',
+            backgroundColor: activeTab === 'attachments' ? 'var(--secondary-color)' : 'transparent',
             color: activeTab === 'attachments' ? 'white' : 'var(--text-main)',
             transition: 'all 0.2s'
           }}
@@ -573,18 +596,46 @@ export default function PatientRecord() {
                 style={{ display: 'none' }} 
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                      uploadAttachmentMutation.mutate({
-                        fileName: file.name,
-                        fileType: file.type,
-                        url: reader.result, // Base64
-                        category: 'Foto'
-                      });
-                    };
-                    reader.readAsDataURL(file);
-                  }
+                  if (!file) return;
+                  e.target.value = ''; // reset input para permitir reenvio do mesmo arquivo
+                  
+                  // Comprime a imagem antes de enviar (max 1920px, qualidade 0.85)
+                  const compressImage = (f: File): Promise<string> => {
+                    return new Promise((resolve) => {
+                      const img = new Image();
+                      const objectUrl = URL.createObjectURL(f);
+                      img.onload = () => {
+                        const MAX_DIM = 1920;
+                        let { width, height } = img;
+                        if (width > MAX_DIM || height > MAX_DIM) {
+                          if (width > height) {
+                            height = Math.round((height * MAX_DIM) / width);
+                            width = MAX_DIM;
+                          } else {
+                            width = Math.round((width * MAX_DIM) / height);
+                            height = MAX_DIM;
+                          }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d')!;
+                        ctx.drawImage(img, 0, 0, width, height);
+                        URL.revokeObjectURL(objectUrl);
+                        resolve(canvas.toDataURL('image/jpeg', 0.85));
+                      };
+                      img.src = objectUrl;
+                    });
+                  };
+
+                  compressImage(file).then((base64) => {
+                    uploadAttachmentMutation.mutate({
+                      fileName: file.name,
+                      fileType: 'image/jpeg',
+                      url: base64,
+                      category: 'Foto'
+                    });
+                  });
                 }}
               />
             </label>
@@ -619,6 +670,75 @@ export default function PatientRecord() {
             </div>
           )}
           </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'agenda' && (
+        <div className="glass-panel" style={{ padding: '2rem' }}>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Calendar size={20} className="text-primary" /> Agendamentos do Paciente
+          </h3>
+          
+          {loadingAppointments ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Carregando agenda...</div>
+          ) : patientAppointments.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '3rem', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+              <Calendar size={48} color="#94a3b8" style={{ marginBottom: '1rem', opacity: 0.5 }} />
+              <h4 style={{ margin: 0, color: '#475569', fontSize: '1.1rem' }}>Nenhum agendamento encontrado</h4>
+              <p style={{ margin: '0.5rem 0 0', color: '#64748b', fontSize: '0.9rem' }}>Este paciente ainda não possui consultas marcadas.</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                    <th style={{ padding: '1rem', color: '#64748b', fontWeight: 600 }}>Data e Hora</th>
+                    <th style={{ padding: '1rem', color: '#64748b', fontWeight: 600 }}>Dentista</th>
+                    <th style={{ padding: '1rem', color: '#64748b', fontWeight: 600 }}>Procedimento</th>
+                    <th style={{ padding: '1rem', color: '#64748b', fontWeight: 600 }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {patientAppointments.map((apt: any) => {
+                    const startDate = parseISO(apt.startTime);
+                    const endDate = parseISO(apt.endTime);
+                    const isCompleted = apt.status === 'COMPLETED';
+                    const isCancelled = apt.status === 'CANCELLED';
+                    
+                    return (
+                      <tr key={apt.id} style={{ borderBottom: '1px solid #f1f5f9', opacity: isCancelled ? 0.6 : 1 }}>
+                        <td style={{ padding: '1rem', fontWeight: 500 }}>
+                          {format(startDate, 'dd/MM/yyyy')} <br/>
+                          <span style={{ fontSize: '0.85rem', color: '#64748b' }}>{format(startDate, 'HH:mm')} - {format(endDate, 'HH:mm')}</span>
+                        </td>
+                        <td style={{ padding: '1rem' }}>{apt.dentist?.name || '-'}</td>
+                        <td style={{ padding: '1rem' }}>
+                          {apt.procedure ? (
+                            <div>
+                              <div style={{ fontWeight: 500 }}>{apt.procedure.treatment?.name}</div>
+                              <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Dente: {apt.procedure.tooth}</div>
+                            </div>
+                          ) : '-'}
+                        </td>
+                        <td style={{ padding: '1rem' }}>
+                          <span style={{ 
+                            padding: '0.25rem 0.75rem', 
+                            borderRadius: '999px', 
+                            fontSize: '0.8rem', 
+                            fontWeight: 600,
+                            backgroundColor: isCompleted ? '#dcfce7' : isCancelled ? '#fee2e2' : '#e0f2fe',
+                            color: isCompleted ? '#166534' : isCancelled ? '#991b1b' : '#0369a1'
+                          }}>
+                            {isCompleted ? 'Finalizado' : isCancelled ? 'Cancelado' : 'Agendado'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

@@ -33,7 +33,7 @@ export default function SuperAdmin() {
   const [activeTab, setActiveTab] = useState<'clinics' | 'financial'>('clinics');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [settings, setSettings] = useState({ subscriptionPrice: 99.90, subscriptionDays: 30 });
+  const [settings, setSettings] = useState({ subscriptionPrice: 99.90, subscriptionDays: 30, adminNotificationEmail: 'arthursangiorgio@gmail.com', adminNotificationPhone: '' });
   const [savingSettings, setSavingSettings] = useState(false);
   const { showToast } = useToast();
 
@@ -99,7 +99,9 @@ export default function SuperAdmin() {
       if (data && !data.error) {
         setSettings({
           subscriptionPrice: data.subscriptionPrice,
-          subscriptionDays: data.subscriptionDays
+          subscriptionDays: data.subscriptionDays,
+          adminNotificationEmail: data.adminNotificationEmail || 'arthursangiorgio@gmail.com',
+          adminNotificationPhone: data.adminNotificationPhone || ''
         });
       }
     } catch (err) {
@@ -300,7 +302,47 @@ export default function SuperAdmin() {
                   }}
                 />
               </div>
-              <div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <Mail size={16} /> E-mail de Notificação
+                </label>
+                <input
+                  type="email"
+                  value={settings.adminNotificationEmail}
+                  onChange={(e) => setSettings({ ...settings, adminNotificationEmail: e.target.value })}
+                  placeholder="Seu e-mail para avisos"
+                  style={{
+                    padding: '0.75rem',
+                    borderRadius: '0.75rem',
+                    border: '1px solid #e2e8f0',
+                    fontSize: '1rem',
+                    outline: 'none',
+                    backgroundColor: 'transparent',
+                    color: '#0f172a'
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <label style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <AlertCircle size={16} /> WhatsApp p/ Avisos (Apenas números)
+                </label>
+                <input
+                  type="text"
+                  value={settings.adminNotificationPhone}
+                  onChange={(e) => setSettings({ ...settings, adminNotificationPhone: e.target.value })}
+                  placeholder="Ex: 5511999999999"
+                  style={{
+                    padding: '0.75rem',
+                    borderRadius: '0.75rem',
+                    border: '1px solid #e2e8f0',
+                    fontSize: '1rem',
+                    outline: 'none',
+                    backgroundColor: 'transparent',
+                    color: '#0f172a'
+                  }}
+                />
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
                 <button
                   type="submit"
                   disabled={savingSettings}

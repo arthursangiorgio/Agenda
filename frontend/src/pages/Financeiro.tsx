@@ -3,9 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from '../context/ToastContext';
 import { 
   DollarSign, TrendingUp, TrendingDown, Clock, 
-  Plus, Calendar, User, Search, Download, CreditCard, Pix, Banknote, Trash
+  Plus, Calendar, User, Search, Download, CreditCard, Pix, Banknote, Trash, CheckCircle2, RotateCcw
 } from 'lucide-react';
-import { fetchTransactions, createTransaction, fetchPatients, deleteTransaction } from '../api';
+import { fetchTransactions, createTransaction, fetchPatients, deleteTransaction, payTransaction, refundTransaction } from '../api';
 import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 
@@ -52,6 +52,28 @@ export default function Financeiro() {
     }
   });
 
+  const payMutation = useMutation({
+    mutationFn: payTransaction,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      showToast('Pagamento confirmado! ✓');
+    },
+    onError: () => {
+      showToast('Erro ao confirmar pagamento.', 'error');
+    }
+  });
+
+  const refundMutation = useMutation({
+    mutationFn: refundTransaction,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      showToast('Estorno realizado. Parcela voltou para Pendente.', 'info');
+    },
+    onError: () => {
+      showToast('Erro ao realizar estorno.', 'error');
+    }
+  });
+
   const resetForm = () => {
     setAmount('');
     setMethod('PIX');
@@ -62,10 +84,15 @@ export default function Financeiro() {
 
   const totals = useMemo(() => {
     return transactions.reduce((acc: any, t: any) => {
-      if (t.type === 'INCOME') acc.income += t.amount;
-      else acc.expense += t.amount;
+      // Só conta no caixa o que já foi pago (status PAID ou sem status = antigo)
+      if (t.status === 'PENDING') {
+        if (t.type === 'INCOME') acc.pending += t.amount;
+      } else {
+        if (t.type === 'INCOME') acc.income += t.amount;
+        else acc.expense += t.amount;
+      }
       return acc;
-    }, { income: 0, expense: 0 });
+    }, { income: 0, expense: 0, pending: 0 });
   }, [transactions]);
 
   const methodIcons: any = {
@@ -109,19 +136,36 @@ export default function Financeiro() {
       </div>
 
       {/* Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        {/* Receitas (só pagas) */}
         <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#ecfdf5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <TrendingUp color="#10b981" />
           </div>
           <div>
-            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Receitas</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Receitas Recebidas</div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10b981' }}>
               R$ {totals.income.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Apenas pagamentos confirmados</div>
           </div>
         </div>
 
+        {/* A Receber (pendentes) */}
+        <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem', borderLeft: '4px solid #f59e0b' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Clock color="#f59e0b" />
+          </div>
+          <div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>A Receber</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#d97706' }}>
+              R$ {totals.pending.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Parcelas ainda não pagas</div>
+          </div>
+        </div>
+
+        {/* Despesas */}
         <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <TrendingDown color="#ef4444" />
@@ -134,15 +178,17 @@ export default function Financeiro() {
           </div>
         </div>
 
+        {/* Saldo real */}
         <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <DollarSign color="#3b82f6" />
           </div>
           <div>
-            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Saldo</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Saldo em Caixa</div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: (totals.income - totals.expense) >= 0 ? '#3b82f6' : '#ef4444' }}>
               R$ {(totals.income - totals.expense).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>Receitas pagas − Despesas</div>
           </div>
         </div>
       </div>
@@ -177,14 +223,21 @@ export default function Financeiro() {
                 </tr>
               ) : (
                 transactions.map((t: any) => (
-                  <tr key={t.id}>
+                  <tr key={t.id} style={{ 
+                    backgroundColor: t.status === 'PENDING' ? 'rgba(245, 158, 11, 0.04)' : 'transparent',
+                    borderLeft: t.status === 'PENDING' ? '3px solid #f59e0b' : '3px solid transparent'
+                  }}>
                     <td>
                       <div style={{ fontSize: '0.875rem' }}>{format(parseISO(t.date), 'dd/MM/yyyy')}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{format(parseISO(t.date), 'HH:mm')}</div>
+                      {t.status === 'PENDING' && t.dueDate ? (
+                        <div style={{ fontSize: '0.75rem', color: '#d97706', fontWeight: 600 }}>Vence: {format(parseISO(t.dueDate), 'dd/MM/yyyy')}</div>
+                      ) : (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{format(parseISO(t.date), 'HH:mm')}</div>
+                      )}
                     </td>
                     <td>
                       <div style={{ fontWeight: 600 }}>{t.patient?.name || 'Geral'}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.procedure?.name || 'Diversos'}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t.description || t.procedure?.name || 'Diversos'}</div>
                     </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
@@ -193,39 +246,112 @@ export default function Financeiro() {
                       </div>
                     </td>
                     <td>
-                      <span style={{ 
-                        fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: '999px',
-                        backgroundColor: t.type === 'INCOME' ? '#dcfce7' : '#fee2e2',
-                        color: t.type === 'INCOME' ? '#166534' : '#991b1b'
-                      }}>
-                        {t.type === 'INCOME' ? 'Receita' : 'Despesa'}
-                      </span>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <span style={{ 
+                          fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: '999px',
+                          backgroundColor: t.type === 'INCOME' ? '#dcfce7' : '#fee2e2',
+                          color: t.type === 'INCOME' ? '#166534' : '#991b1b'
+                        }}>
+                          {t.type === 'INCOME' ? 'Receita' : 'Despesa'}
+                        </span>
+                        {t.status && (
+                          <span style={{ 
+                            fontSize: '0.75rem', fontWeight: 600, padding: '0.2rem 0.6rem', borderRadius: '999px',
+                            backgroundColor: t.status === 'PENDING' ? '#fef3c7' : '#dcfce7',
+                            color: t.status === 'PENDING' ? '#b45309' : '#166534'
+                          }}>
+                            {t.status === 'PENDING' ? 'Pendente' : 'Pago'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: t.type === 'INCOME' ? '#10b981' : '#ef4444' }}>
                       {t.type === 'INCOME' ? '+' : '-'} R$ {t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <button 
-                        onClick={() => {
-                          if (window.confirm('Tem certeza que deseja excluir esta transação?')) {
-                            deleteMutation.mutate(t.id);
-                          }
-                        }}
-                        style={{ 
-                          background: 'none', 
-                          border: 'none', 
-                          cursor: 'pointer', 
-                          color: '#ef4444', 
-                          padding: '0.5rem',
-                          borderRadius: '8px',
-                          transition: 'background-color 0.2s'
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                        disabled={deleteMutation.isPending}
-                      >
-                        <Trash size={16} />
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'center', alignItems: 'center' }}>
+                        {t.status === 'PENDING' && (
+                          <button
+                            title="Dar Baixa (Confirmar Pagamento)"
+                            onClick={() => {
+                              if (window.confirm(`Confirmar recebimento de R$ ${t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}?`)) {
+                                payMutation.mutate(t.id);
+                              }
+                            }}
+                            style={{
+                              background: 'none',
+                              border: '1px solid #10b981',
+                              cursor: 'pointer',
+                              color: '#10b981',
+                              padding: '0.35rem 0.6rem',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#10b981'; e.currentTarget.style.color = 'white'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#10b981'; }}
+                            disabled={payMutation.isPending}
+                          >
+                            <CheckCircle2 size={14} />
+                            Dar Baixa
+                          </button>
+                        )}
+                        {t.status === 'PAID' && (
+                          <button
+                            title="Estornar pagamento"
+                            onClick={() => {
+                              if (window.confirm(`Estornar o pagamento de R$ ${t.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}? A parcela voltará para Pendente.`)) {
+                                refundMutation.mutate(t.id);
+                              }
+                            }}
+                            style={{
+                              background: 'none',
+                              border: '1px solid #f59e0b',
+                              cursor: 'pointer',
+                              color: '#d97706',
+                              padding: '0.35rem 0.6rem',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.3rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f59e0b'; e.currentTarget.style.color = 'white'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.color = '#d97706'; }}
+                            disabled={refundMutation.isPending}
+                          >
+                            <RotateCcw size={14} />
+                            Estornar
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => {
+                            if (window.confirm('Tem certeza que deseja excluir esta transação?')) {
+                              deleteMutation.mutate(t.id);
+                            }
+                          }}
+                          style={{ 
+                            background: 'none', 
+                            border: 'none', 
+                            cursor: 'pointer', 
+                            color: '#ef4444', 
+                            padding: '0.5rem',
+                            borderRadius: '8px',
+                            transition: 'background-color 0.2s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

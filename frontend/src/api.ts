@@ -41,8 +41,9 @@ export const deletePatient = async (id: string) => {
   return res.json();
 };
 
-export const fetchAppointments = async () => {
-  const res = await fetch(`${API_URL}/appointments`, {
+export const fetchAppointments = async (patientId?: string) => {
+  const url = patientId ? `${API_URL}/appointments?patientId=${patientId}` : `${API_URL}/appointments`;
+  const res = await fetch(url, {
     headers: getHeaders(),
   });
   return res.json();
@@ -185,7 +186,7 @@ export const fetchTreatments = async (patientId: string) => {
   return res.json();
 };
 
-export const createTreatment = async (data: { name: string; description: string; patientId: string; procedures: {name: string, tooth: string, price: number, duration: number}[] }) => {
+export const createTreatment = async (data: { name: string; description: string; patientId: string; subtotal?: number; discount?: number; addition?: number; total?: number; transactions?: any[]; procedures: {name: string, tooth: string, price: number, duration: number}[] }) => {
   const res = await fetch(`${API_URL}/treatments`, {
     method: 'POST',
     headers: getHeaders(),
@@ -194,7 +195,7 @@ export const createTreatment = async (data: { name: string; description: string;
   return res.json();
 };
 
-export const updateTreatment = async (id: string, data: { name: string; description: string; status: string }) => {
+export const updateTreatment = async (id: string, data: any) => {
   const res = await fetch(`${API_URL}/treatments/${id}`, {
     method: 'PUT',
     headers: getHeaders(),
@@ -333,6 +334,22 @@ export const deleteAttachment = async (id: string) => {
   return res.json();
 };
 
+export const payTransaction = async (id: string) => {
+  const res = await fetch(`${API_URL}/transactions/${id}/pay`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+  });
+  return res.json();
+};
+
+export const refundTransaction = async (id: string) => {
+  const res = await fetch(`${API_URL}/transactions/${id}/refund`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+  });
+  return res.json();
+};
+
 // --- WHATSAPP API ---
 export const fetchWhatsAppStatus = async () => {
   const res = await fetch(`${API_URL}/whatsapp/status`, {
@@ -406,7 +423,7 @@ export const fetchSystemSettings = async () => {
   return res.json();
 };
 
-export const updateSystemSettings = async (data: { subscriptionPrice: number; subscriptionDays: number }) => {
+export const updateSystemSettings = async (data: { subscriptionPrice?: number; subscriptionDays?: number; adminNotificationEmail?: string; adminNotificationPhone?: string }) => {
   const res = await fetch(`${API_URL}/admin/settings`, {
     method: 'PUT',
     headers: getHeaders(),

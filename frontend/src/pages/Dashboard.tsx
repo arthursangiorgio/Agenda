@@ -1,28 +1,28 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchPatients, fetchAppointments, fetchAllTreatments } from '../api';
+import { fetchPatients, fetchAppointments, fetchAllTreatments, fetchTransactions } from '../api';
 import { Users, Calendar, DollarSign, Activity, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 import { format, isToday, parseISO } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 
 export default function Dashboard() {
   const { data: patients = [] } = useQuery({ queryKey: ['patients'], queryFn: fetchPatients });
-  const { data: appointments = [] } = useQuery({ queryKey: ['appointments'], queryFn: fetchAppointments });
+  const { data: appointments = [] } = useQuery({ queryKey: ['appointments'], queryFn: () => fetchAppointments() });
   const { data: treatments = [] } = useQuery({ queryKey: ['all-treatments'], queryFn: fetchAllTreatments });
+  const { data: transactions = [] } = useQuery({ queryKey: ['transactions'], queryFn: () => fetchTransactions() });
 
   // Today's stats
   const todayAppointments = appointments.filter((app: any) => isToday(parseISO(app.startTime)));
   const completedToday = todayAppointments.filter((app: any) => app.status === 'COMPLETED');
   
   // Financial stats
-  const allProcedures = treatments.flatMap((t: any) => t.procedures || []);
-  const totalRevenue = allProcedures
-    .filter((p: any) => p.isCompleted)
-    .reduce((acc: number, curr: any) => acc + (curr.price || 0), 0);
+  const totalRevenue = transactions
+    .filter((t: any) => t.status === 'PAID' && t.type === 'INCOME')
+    .reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0);
     
-  const pendingRevenue = allProcedures
-    .filter((p: any) => !p.isCompleted)
-    .reduce((acc: number, curr: any) => acc + (curr.price || 0), 0);
+  const pendingRevenue = transactions
+    .filter((t: any) => t.status === 'PENDING' && t.type === 'INCOME')
+    .reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);

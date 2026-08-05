@@ -40,7 +40,7 @@ export default function Agenda() {
   const [blockReason, setBlockReason] = useState('');
 
   // Queries
-  const { data: appointments = [] } = useQuery({ queryKey: ['appointments'], queryFn: fetchAppointments });
+  const { data: appointments = [] } = useQuery({ queryKey: ['appointments'], queryFn: () => fetchAppointments() });
   const { data: patients = [] } = useQuery({ queryKey: ['patients'], queryFn: fetchPatients });
   const { data: dentists = [] } = useQuery({ queryKey: ['dentists'], queryFn: fetchDentists });
   const { data: scheduleBlocks = [] } = useQuery({ queryKey: ['schedule-blocks'], queryFn: fetchScheduleBlocks });
