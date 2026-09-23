@@ -158,7 +158,8 @@ router.post('/generate-link', authMiddleware, async (req: AuthRequest, res) => {
     } else {
       // Mock mode
       paymentLinkId = 'mock_link_' + Math.random().toString(36).substring(2, 11);
-      paymentLinkUrl = `http://localhost:3002/api/licensing/mock-gate?tenantId=${tenant.id}&paymentLinkId=${paymentLinkId}`;
+      const apiBase = process.env.API_BASE_URL || 'http://localhost:3002/api';
+      paymentLinkUrl = `${apiBase}/licensing/mock-gate?tenantId=${tenant.id}&paymentLinkId=${paymentLinkId}`;
     }
 
     // Save to database
@@ -420,7 +421,8 @@ router.get('/mock-gate', async (req, res) => {
           document.getElementById('pay-btn').style.display = 'none';
           document.getElementById('success-msg').style.display = 'block';
           setTimeout(() => {
-            window.location.href = 'http://localhost:5173/settings';
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            window.location.href = `${frontendUrl}/settings`;
           }, 2000);
         } else {
           alert('Erro ao processar simulação de pagamento: ' + JSON.stringify(result));

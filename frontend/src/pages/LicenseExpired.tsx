@@ -24,7 +24,8 @@ export default function LicenseExpired() {
   const handlePay = async () => {
     setGenerating(true);
     try {
-      const res = await fetch('http://localhost:3002/api/licensing/generate-link', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+      const res = await fetch(`${apiUrl}/licensing/generate-link`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -63,7 +64,8 @@ export default function LicenseExpired() {
       // Need a payment link first
       setSimulating(true);
       try {
-        const res = await fetch('http://localhost:3002/api/licensing/generate-link', {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+        const res = await fetch(`${apiUrl}/licensing/generate-link`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -90,7 +92,8 @@ export default function LicenseExpired() {
 
   const triggerMockWebhook = async (linkId: string) => {
     try {
-      const res = await fetch('http://localhost:3002/api/webhooks/asaas', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+      const res = await fetch(`${apiUrl}/webhooks/asaas`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

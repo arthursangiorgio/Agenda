@@ -180,7 +180,8 @@ export default function Settings() {
               onClick={async () => {
                 setGeneratingLink(true);
                 try {
-                  const res = await fetch('http://localhost:3002/api/licensing/generate-link', {
+                  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+                  const res = await fetch(`${apiUrl}/licensing/generate-link`, {
                     method: 'POST',
                     headers: {
                       'Content-Type': 'application/json',

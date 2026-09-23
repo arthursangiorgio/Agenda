@@ -151,7 +151,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <Router>
+        <Router basename="/agenda">
           <AuthProvider>
             <Routes>
               <Route path="/login" element={<Login />} />

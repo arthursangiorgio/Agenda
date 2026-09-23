@@ -50,7 +50,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setLoadingLicense(true);
     try {
-      const res = await fetch('http://localhost:3002/api/licensing/status', {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3002/api';
+      const res = await fetch(`${apiUrl}/licensing/status`, {
         headers: {
           'Authorization': `Bearer ${activeToken}`
         }
