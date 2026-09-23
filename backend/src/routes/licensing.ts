@@ -421,8 +421,8 @@ router.get('/mock-gate', async (req, res) => {
           document.getElementById('pay-btn').style.display = 'none';
           document.getElementById('success-msg').style.display = 'block';
           setTimeout(() => {
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            window.location.href = `${frontendUrl}/settings`;
+            const frontendUrl = '${process.env.FRONTEND_URL || 'http://localhost:5173'}';
+            window.location.href = frontendUrl + '/settings';
           }, 2000);
         } else {
           alert('Erro ao processar simulação de pagamento: ' + JSON.stringify(result));
